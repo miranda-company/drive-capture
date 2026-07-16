@@ -31,6 +31,13 @@
         <button id="capture-viewport" type="button">Capture visible viewport</button>
       </section>
 
+      <section aria-labelledby="diagnostic-heading">
+        <h2 id="diagnostic-heading">Scrolling diagnostic</h2>
+        <p>Measure the page, visit a bounded scroll plan, and restore the starting position.</p>
+        <button id="scroll-diagnostic" type="button">Test full-page scrolling</button>
+        <button id="cancel-diagnostic" type="button" class="secondary-button" hidden>Cancel diagnostic</button>
+      </section>
+
       <p class="notice">Full-page capture and Google Drive upload are not implemented. The JPEG preview is temporary and remains only in popup memory.</p>
 
       <section id="preview" class="preview" aria-labelledby="preview-heading" hidden>
@@ -59,6 +66,16 @@
           </div>
         </dl>
         <button id="clear-preview" type="button" class="secondary-button">Clear preview</button>
+      </section>
+
+      <section id="diagnostic-results" class="diagnostic-results" aria-labelledby="diagnostic-results-heading" hidden>
+        <h2 id="diagnostic-results-heading">Scroll diagnostic results</h2>
+        <dl id="diagnostic-metadata" class="metadata"></dl>
+        <table>
+          <caption>Requested and actual vertical positions</caption>
+          <thead><tr><th scope="col">Step</th><th scope="col">Requested Y</th><th scope="col">Actual Y</th><th scope="col">Clamped</th></tr></thead>
+          <tbody id="diagnostic-steps"></tbody>
+        </table>
       </section>
 
       <div id="live-status" class="live-status" role="status" aria-live="polite" aria-atomic="true" data-state="idle">

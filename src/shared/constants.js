@@ -10,6 +10,13 @@ export const CONTEXTS = Object.freeze({
 export const DEFAULT_JPEG_QUALITY = 0.92;
 export const VISIBLE_VIEWPORT_JPEG_QUALITY = 92;
 export const MINIMUM_CAPTURE_INTERVAL_MS = 550;
+export const MAX_DIAGNOSTIC_SCROLL_STEPS = 100;
+export const MAX_DIAGNOSTIC_PLAN_REVISIONS = 2;
+export const SCROLL_SETTLE_TIMEOUT_MS = 1500;
+export const SCROLL_POSITION_TOLERANCE_PX = 2;
+export const MAX_VIEWPORT_CHANGE_PX = 2;
+export const DIAGNOSTIC_RENDER_DELAY_MS = 250;
+export const PAGE_MESSAGE_TIMEOUT_MS = 4000;
 export const MULTIPART_UPLOAD_THRESHOLD_BYTES = 5 * 1024 * 1024;
 export const MANAGED_DRIVE_FOLDER_NAME = "DriveCapture";
 
@@ -20,5 +27,5 @@ export const STORAGE_KEYS = Object.freeze({
   CAPTURE_DELAY_MS: "captureDelayMs"
 });
 
-export const CURRENT_EXTENSION_PHASE = "phase-2a-visible-viewport";
+export const CURRENT_EXTENSION_PHASE = "phase-2b-scroll-diagnostic";
 export const OFFSCREEN_DOCUMENT_PATH = "src/offscreen/offscreen.html";

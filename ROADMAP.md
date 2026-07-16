@@ -97,13 +97,31 @@ Implemented in this checkpoint:
 
 Still pending for the rest of Phase 2:
 
-- Page-script injection, document measurement, scrolling, sticky/fixed-element handling, throttled multi-segment capture, incremental offscreen processing, measured bitmap scaling, Canvas stitching/cropping, and full-page cleanup.
+- Sticky/fixed-element handling, throttled multi-segment screenshot capture, incremental offscreen processing, measured bitmap scaling, Canvas stitching/cropping, and production full-page cleanup.
 
 Phase 2A acceptance status:
 
 - Automated: all injected-adapter tests pass, including one capture call, correct window/quality, lock release on failure, concurrent rejection, unsupported pages, malformed results, and safe adapter failures.
 - Static: the permission boundary is unchanged and no screenshot storage, OAuth, Drive, Fetch, injection, scrolling, Canvas, Blob processing, download, or network behavior was added.
 - Manual: visible-viewport capture was tested in Chrome. No separate completion claim is recorded for restricted-page, preview-clear, concurrency, storage, network, or console checks.
+
+### Phase 2B checkpoint: measurement and controlled-scrolling diagnostic
+
+**Status:** Implemented on 2026-07-17 with automated tests. The general measurement/controlled-scrolling diagnostic was manually tested in Chrome; scenario-specific restoration, cancellation, resize, navigation, dynamic-page, and visible-capture regression outcomes were not separately reported. Full Phase 2 is not complete.
+
+Completed in this checkpoint:
+
+- Explicit-user-action injection of a local packaged page controller.
+- Defensive viewport/document measurement and bounded non-reversible document identity.
+- Sorted, deduplicated, maximum-bounded vertical plans with strict step and revision limits.
+- Instant scrolling with settle checks, actual-position/clamping records, render delay, dynamic-height observation, and popup progress/results.
+- Detection of navigation/document replacement, significant viewport change, missing page communication, unstable scrolling, and unbounded dynamic growth.
+- Cancellation plus restoration and shared session-lock release through cleanup paths.
+- Hostname-only reporting with no full URL or page-content storage/logging.
+
+Still pending:
+
+- Screenshot capture during the sequence, incremental offscreen image processing, high-DPI placement, overlap/cropping, Canvas stitching, and sticky/fixed-element modification.
 
 ### Objective
 

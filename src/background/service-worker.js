@@ -19,10 +19,17 @@ import {
 import { createJobState } from "./job-state.js";
 import { createChromeTabAdapter } from "./tab-adapter.js";
 import { createVisibleViewportCaptureCoordinator } from "./visible-viewport-capture.js";
+import { createPageScriptAdapter } from "./page-script-adapter.js";
+import { createPageScrollDiagnosticCoordinator } from "./page-scroll-diagnostic.js";
 
 const jobState = createJobState();
 const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
   tabAdapter: createChromeTabAdapter(),
+  jobState
+});
+const pageScrollDiagnostic = createPageScrollDiagnosticCoordinator({
+  tabAdapter: createChromeTabAdapter(),
+  pageAdapter: createPageScriptAdapter(),
   jobState
 });
 
@@ -39,6 +46,8 @@ function createErrorResponse(request, error) {
     type:
       request?.type === MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_REQUEST
         ? MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_ERROR
+        : request?.type === MESSAGE_TYPES.SCROLL_DIAGNOSTIC_REQUEST
+          ? MESSAGE_TYPES.SCROLL_DIAGNOSTIC_ERROR
         : MESSAGE_TYPES.APPLICATION_ERROR_RESPONSE,
     source: CONTEXTS.SERVICE_WORKER,
     target: getResponseTarget(request),
@@ -65,6 +74,16 @@ function notifyVisibleViewportCaptureStarted(requestId) {
   void chrome.runtime.sendMessage(message).catch(() => {
     // The popup may have closed. Capture cleanup and the main response continue.
   });
+}
+
+function notifyScrollProgress(requestId, payload) {
+  void chrome.runtime.sendMessage(createMessage({
+    type: MESSAGE_TYPES.PAGE_SCROLL_PROGRESS,
+    source: CONTEXTS.SERVICE_WORKER,
+    target: CONTEXTS.POPUP,
+    requestId,
+    payload
+  })).catch(() => {});
 }
 
 async function getOffscreenContexts() {
@@ -259,6 +278,33 @@ async function handleMessage(message) {
         payload: result
       });
     }
+
+    case MESSAGE_TYPES.SCROLL_DIAGNOSTIC_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP) throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      const diagnostic = await pageScrollDiagnostic.run({
+        requestId: message.requestId,
+        onProgress: (payload) => notifyScrollProgress(message.requestId, payload)
+      });
+      return createMessage({
+        type: MESSAGE_TYPES.SCROLL_DIAGNOSTIC_SUCCESS,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload: diagnostic
+      });
+    }
+
+    case MESSAGE_TYPES.SCROLL_DIAGNOSTIC_CANCEL_REQUEST:
+      if (message.source !== CONTEXTS.POPUP || typeof message.payload.diagnosticRequestId !== "string") {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+      return createMessage({
+        type: MESSAGE_TYPES.SCROLL_DIAGNOSTIC_CANCEL_RESPONSE,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload: { accepted: pageScrollDiagnostic.cancel(message.payload.diagnosticRequestId) }
+      });
 
     default:
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });

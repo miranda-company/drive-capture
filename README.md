@@ -2,7 +2,18 @@
 
 DriveCapture is a planned Manifest V3 Chrome extension that will capture a high-resolution, full-page image of the active HTTP or HTTPS page and upload the resulting JPEG to a dedicated Google Drive folder created and managed by the extension.
 
-Phase 2A is implemented on top of the Phase 1 shell. After an explicit click, DriveCapture can validate the active page, capture exactly one visible viewport as a JPEG, and display a temporary popup preview with bitmap dimensions, estimated encoded size, and capture time. The image is not saved or uploaded. Full-page scrolling, stitching, authentication, Drive folder management, and upload behavior remain unimplemented. Real capture still requires the manual Chrome smoke test below. See [ROADMAP.md](ROADMAP.md) for the phased implementation plan.
+Phases 2A and 2B are implemented on top of the Phase 1 shell. DriveCapture can preview one visible viewport and can separately run a page measurement and controlled-scrolling diagnostic. The diagnostic captures no screenshots: it visits a bounded plan, records actual positions, and restores the starting scroll position. Full-page image capture, stitching, authentication, Drive folder management, and upload remain unimplemented.
+
+## Current Phase 2B diagnostic
+
+- **Test full-page scrolling** injects one local packaged controller only after an explicit popup request.
+- Measures the CSS viewport, defensive document dimensions, maximum scroll, original scroll, device-pixel ratio, scrolling element, hostname, and bounded document identity.
+- Creates a sorted vertical plan containing `0` and the maximum scroll position, with strict step and dynamic-height revision limits.
+- Records requested and actual Y positions and browser clamping, with `Step X of Y` progress.
+- Detects navigation/document replacement, material viewport changes, missing controller communication, and unstable scrolling.
+- Always attempts restoration and shared-lock release in cleanup, including failure and cancellation paths.
+- Infinite and dynamically growing pages are intentionally bounded and may return `DYNAMIC_PAGE_UNSTABLE`.
+- Does not capture images during scrolling, modify fixed/sticky elements, insert DOM nodes, store page contents/full URLs, or use Canvas, OAuth, Drive, downloads, or the offscreen document.
 
 ## Current Phase 2A behavior
 
@@ -69,7 +80,7 @@ Because MV3 workers may be suspended, the active capture-job lock and only the s
 
 ### Injected page capture module
 
-This module is planned but not implemented. It will measure the document and CSS viewport, find the scrolling element, scroll to requested positions, report actual positions, wait for layout to settle, and temporarily hide qualifying fixed or sticky elements after the first capture. Its cleanup path will restore the original scroll position and every modified inline style.
+Phase 2B implements a local packaged measurement controller that measures the document, scrolls to requested positions, reports actual positions, detects document/viewport changes, and restores the original scroll position. Fixed/sticky-element detection and style modification remain future work.
 
 The MVP will inject this module only after the action is invoked. It will not request persistent access to every website.
 
@@ -118,7 +129,7 @@ The scaffold intentionally avoids `<all_urls>`. It also does not request the opt
 | Permission | Reason |
 | --- | --- |
 | `activeTab` | Grants temporary access to the current page after the user invokes the extension. |
-| `scripting` | Reserved for the future local measurement, scrolling, and cleanup module; unused in Phase 2A. |
+| `scripting` | Injects the local Phase 2B measurement and controlled-scrolling controller after an explicit user action. |
 | `identity` | Reserved for future Google OAuth; unused in Phase 2A. |
 | `storage` | Stores the managed folder ID locally, portable preferences in sync storage, and the small active-job lock/metadata in session storage. |
 | `offscreen` | Supports the Phase 1 lifecycle diagnostic and is reserved for future image processing/upload; unused by Phase 2A capture. |
@@ -200,6 +211,17 @@ After loading or reloading the unpacked extension:
 
 On 2026-07-17, the visible-viewport capture was manually tested in Chrome. This record intentionally makes no additional manual claims about restricted-page handling, preview clearing, concurrent capture, extension storage, network activity, or service-worker console output because those checks were not separately reported as completed.
 
+## Phase 2B manual Chrome verification
+
+On 2026-07-17, the page-measurement and controlled-scrolling diagnostic was manually tested in Chrome. Only that general diagnostic run was reported as completed. The following scenario-specific results were not separately reported, so this document does not infer outcomes for them:
+
+- Successful restoration to the original position: not separately reported.
+- Cancellation and restoration after cancellation: not separately reported.
+- Resize detection and restoration: not separately reported.
+- Navigation detection and restoration attempt: not separately reported.
+- Dynamic or infinitely growing page behavior: not separately reported.
+- Visible-viewport capture regression after Phase 2B: not separately reported.
+
 ## Future implementation testing plan
 
 Once the relevant roadmap phase is implemented:
@@ -262,4 +284,4 @@ DriveCapture accepts ordinary HTTP and HTTPS pages. It rejects browser-internal 
 
 ## Project status
 
-Phase 2A code and automated checks are complete, and visible-viewport capture has been manually tested in Chrome. Full Phase 2 scrolling and stitching, plus all OAuth, folder, and upload behavior, remain unimplemented.
+Phase 2B measurement and controlled-scrolling diagnostics are implemented, automated tests pass, and the general diagnostic was manually tested in Chrome. Scenario-specific manual results remain unrecorded as listed above. Phase 2A remains available. Multi-viewport capture, stitching, sticky-element modification, OAuth, Drive, and downloads remain unimplemented.

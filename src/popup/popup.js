@@ -10,6 +10,7 @@ import {
   validateMessageEnvelope
 } from "../shared/messages.js";
 import { validateVisibleViewportResult } from "../shared/visible-viewport.js";
+import { validateScrollDiagnosticResult } from "../shared/page-measurement.js";
 
 const workerStatus = document.querySelector("#worker-status");
 const liveStatus = document.querySelector("#live-status");
@@ -23,10 +24,16 @@ const previewWidth = document.querySelector("#preview-width");
 const previewHeight = document.querySelector("#preview-height");
 const previewSize = document.querySelector("#preview-size");
 const previewTimestamp = document.querySelector("#preview-timestamp");
+const diagnosticButton = document.querySelector("#scroll-diagnostic");
+const cancelDiagnosticButton = document.querySelector("#cancel-diagnostic");
+const diagnosticResults = document.querySelector("#diagnostic-results");
+const diagnosticMetadata = document.querySelector("#diagnostic-metadata");
+const diagnosticSteps = document.querySelector("#diagnostic-steps");
 
 let activeCaptureRequestId = null;
 let pendingPreviewResult = null;
 let previewDataUrl = null;
+let activeDiagnosticRequestId = null;
 
 function userSafeError(response, fallback) {
   const error = response?.payload?.error;
@@ -55,6 +62,49 @@ function setCaptureState(state, message) {
 function setBusy(isBusy) {
   captureButton.disabled = isBusy;
   scaffoldCheckButton.disabled = isBusy;
+  diagnosticButton.disabled = isBusy;
+}
+
+function clearDiagnosticResults() {
+  diagnosticResults.hidden = true;
+  diagnosticMetadata.replaceChildren();
+  diagnosticSteps.replaceChildren();
+}
+
+function addMetadata(label, value) {
+  const wrapper = document.createElement("div");
+  const term = document.createElement("dt");
+  const detail = document.createElement("dd");
+  term.textContent = label;
+  detail.textContent = value;
+  wrapper.append(term, detail);
+  diagnosticMetadata.append(wrapper);
+}
+
+function showDiagnosticResult(result) {
+  clearDiagnosticResults();
+  const measurement = result.measurement;
+  addMetadata("Hostname", result.hostname);
+  addMetadata("CSS viewport", `${measurement.viewport.width} × ${measurement.viewport.height}`);
+  addMetadata("Document", `${measurement.document.width} × ${measurement.document.height}`);
+  addMetadata("Maximum scroll", `${measurement.maximumScroll.x}, ${measurement.maximumScroll.y}`);
+  addMetadata("Device pixel ratio", String(measurement.devicePixelRatio));
+  addMetadata("Original scroll", `${measurement.originalScroll.x}, ${measurement.originalScroll.y}`);
+  addMetadata("Planned positions", String(result.plannedPositions.length));
+  addMetadata("Positions visited", String(result.steps.length));
+  addMetadata("Restored scroll", `${result.restoration.actual.x}, ${result.restoration.actual.y}`);
+  addMetadata("Restored within tolerance", result.restoration.withinTolerance ? "Yes" : "No");
+  addMetadata("Duration", `${Math.round(result.durationMs)} ms`);
+  result.steps.forEach((step, index) => {
+    const row = document.createElement("tr");
+    for (const value of [index + 1, step.requestedY, step.actualY, step.clamped ? "Yes" : "No"]) {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      row.append(cell);
+    }
+    diagnosticSteps.append(row);
+  });
+  diagnosticResults.hidden = false;
 }
 
 function resetMetadata() {
@@ -198,6 +248,51 @@ async function captureVisibleViewport() {
   }
 }
 
+async function runScrollDiagnostic() {
+  clearDiagnosticResults();
+  setBusy(true);
+  cancelDiagnosticButton.hidden = false;
+  setCaptureState("inspecting-page", "Inspecting page…");
+  const request = createWorkerRequest(MESSAGE_TYPES.SCROLL_DIAGNOSTIC_REQUEST);
+  activeDiagnosticRequestId = request.requestId;
+  try {
+    const response = await chrome.runtime.sendMessage(request);
+    if (!validateMessageEnvelope(response) || response.requestId !== request.requestId) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type === MESSAGE_TYPES.SCROLL_DIAGNOSTIC_ERROR) {
+      throw validateApplicationError(response.payload.error)
+        ? response.payload.error : createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type !== MESSAGE_TYPES.SCROLL_DIAGNOSTIC_SUCCESS || !validateScrollDiagnosticResult(response.payload)) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    showDiagnosticResult(response.payload);
+    setCaptureState("diagnostic-successful", "Diagnostic successful — original page position restored.");
+  } catch (error) {
+    setCaptureState("diagnostic-failed", `Diagnostic failed — ${validateApplicationError(error) ? error.message : "Unexpected internal failure."}`);
+  } finally {
+    activeDiagnosticRequestId = null;
+    cancelDiagnosticButton.hidden = true;
+    setBusy(false);
+    diagnosticButton.focus();
+  }
+}
+
+async function cancelScrollDiagnostic() {
+  if (!activeDiagnosticRequestId) return;
+  cancelDiagnosticButton.disabled = true;
+  setCaptureState("restoring-page", "Restoring page…");
+  const request = createMessage({
+    type: MESSAGE_TYPES.SCROLL_DIAGNOSTIC_CANCEL_REQUEST,
+    source: CONTEXTS.POPUP,
+    target: CONTEXTS.SERVICE_WORKER,
+    payload: { diagnosticRequestId: activeDiagnosticRequestId }
+  });
+  try { await chrome.runtime.sendMessage(request); } catch {}
+  cancelDiagnosticButton.disabled = false;
+}
+
 function showLoadedPreview() {
   if (!pendingPreviewResult || !previewDataUrl) {
     return;
@@ -234,12 +329,24 @@ chrome.runtime.onMessage.addListener((message) => {
     setCaptureState("capturing-viewport", "Capturing viewport…");
   }
 
+  if (validateMessageEnvelope(message) && message.type === MESSAGE_TYPES.PAGE_SCROLL_PROGRESS &&
+      message.source === CONTEXTS.SERVICE_WORKER && message.target === CONTEXTS.POPUP &&
+      message.requestId === activeDiagnosticRequestId) {
+    const progress = message.payload;
+    if (progress.state === "inspecting-page") setCaptureState("inspecting-page", "Inspecting page…");
+    if (progress.state === "creating-scroll-plan") setCaptureState("creating-scroll-plan", "Creating scroll plan…");
+    if (progress.state === "scrolling") setCaptureState("scrolling", `Scrolling — Step ${progress.step} of ${progress.total}`);
+    if (progress.state === "restoring-page") setCaptureState("restoring-page", "Restoring page…");
+  }
+
   return false;
 });
 
 scaffoldCheckButton.addEventListener("click", runScaffoldCheck);
 captureButton.addEventListener("click", captureVisibleViewport);
 clearPreviewButton.addEventListener("click", () => releasePreview());
+diagnosticButton.addEventListener("click", runScrollDiagnostic);
+cancelDiagnosticButton.addEventListener("click", cancelScrollDiagnostic);
 previewImage.addEventListener("load", showLoadedPreview);
 previewImage.addEventListener("error", () => captureFailure("The JPEG preview could not be displayed."));
 window.addEventListener("pagehide", () => {

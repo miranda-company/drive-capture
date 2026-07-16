@@ -54,10 +54,39 @@ p {
 .connection,
 section[aria-labelledby="checks-heading"],
 section[aria-labelledby="capture-heading"],
+section[aria-labelledby="diagnostic-heading"],
 .preview {
   padding: 0.85rem;
   border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
   border-radius: 0.65rem;
+}
+
+.diagnostic-results {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+caption {
+  padding-block: 0.5rem;
+  text-align: left;
+  font-weight: 700;
+}
+
+th,
+td {
+  padding: 0.35rem;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 15%, transparent);
+  text-align: right;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
 }
 
 .status-badge {
