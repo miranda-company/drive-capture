@@ -3,6 +3,8 @@ import { isJsonSerializable } from "./messages.js";
 export const ERROR_CODES = Object.freeze({
   UNSUPPORTED_PAGE: "UNSUPPORTED_PAGE",
   CAPTURE_IN_PROGRESS: "CAPTURE_IN_PROGRESS",
+  CAPTURE_FAILED: "CAPTURE_FAILED",
+  INVALID_CAPTURE_RESULT: "INVALID_CAPTURE_RESULT",
   PAGE_CHANGED: "PAGE_CHANGED",
   IMAGE_TOO_LARGE: "IMAGE_TOO_LARGE",
   AUTHENTICATION_REQUIRED: "AUTHENTICATION_REQUIRED",
@@ -16,6 +18,8 @@ export const ERROR_CODES = Object.freeze({
 const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.UNSUPPORTED_PAGE]: "This page is not supported.",
   [ERROR_CODES.CAPTURE_IN_PROGRESS]: "Another DriveCapture job is already running.",
+  [ERROR_CODES.CAPTURE_FAILED]: "Chrome could not capture the visible viewport.",
+  [ERROR_CODES.INVALID_CAPTURE_RESULT]: "Chrome returned an invalid screenshot.",
   [ERROR_CODES.PAGE_CHANGED]: "The page changed while the operation was running.",
   [ERROR_CODES.IMAGE_TOO_LARGE]: "The page is too large to process safely.",
   [ERROR_CODES.AUTHENTICATION_REQUIRED]: "Google authorization is required.",

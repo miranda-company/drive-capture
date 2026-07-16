@@ -8,6 +8,7 @@ export const CONTEXTS = Object.freeze({
 });
 
 export const DEFAULT_JPEG_QUALITY = 0.92;
+export const VISIBLE_VIEWPORT_JPEG_QUALITY = 92;
 export const MINIMUM_CAPTURE_INTERVAL_MS = 550;
 export const MULTIPART_UPLOAD_THRESHOLD_BYTES = 5 * 1024 * 1024;
 export const MANAGED_DRIVE_FOLDER_NAME = "DriveCapture";
@@ -19,5 +20,5 @@ export const STORAGE_KEYS = Object.freeze({
   CAPTURE_DELAY_MS: "captureDelayMs"
 });
 
-export const CURRENT_EXTENSION_PHASE = "phase-1-scaffold";
+export const CURRENT_EXTENSION_PHASE = "phase-2a-visible-viewport";
 export const OFFSCREEN_DOCUMENT_PATH = "src/offscreen/offscreen.html";

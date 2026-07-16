@@ -9,9 +9,9 @@
   <body>
     <main>
       <header>
-        <p class="eyebrow">Chrome extension scaffold</p>
+        <p class="eyebrow">Phase 2A preview</p>
         <h1>DriveCapture</h1>
-        <p>The Phase 1 extension scaffold is installed.</p>
+        <p>Capture one visible browser viewport for a temporary preview.</p>
       </header>
 
       <section class="connection" aria-labelledby="connection-heading">
@@ -23,13 +23,46 @@
         <h2 id="checks-heading">Scaffold diagnostics</h2>
         <p>Verify the job lock and the offscreen document lifecycle.</p>
         <button id="scaffold-check" type="button">Run scaffold check</button>
-        <button type="button" disabled>Capture and upload</button>
       </section>
 
-      <p class="notice">Screenshot capture, Google authorization, and Drive upload are not implemented yet.</p>
+      <section aria-labelledby="capture-heading">
+        <h2 id="capture-heading">Visible viewport</h2>
+        <p>Capture exactly what is currently visible in the active tab.</p>
+        <button id="capture-viewport" type="button">Capture visible viewport</button>
+      </section>
 
-      <div id="live-status" class="live-status" role="status" aria-live="polite" aria-atomic="true">
-        Ready to check the scaffold.
+      <p class="notice">Full-page capture and Google Drive upload are not implemented. The JPEG preview is temporary and remains only in popup memory.</p>
+
+      <section id="preview" class="preview" aria-labelledby="preview-heading" hidden>
+        <h2 id="preview-heading">Temporary JPEG preview</h2>
+        <img id="preview-image" alt="Captured preview of the visible browser viewport">
+        <dl class="metadata">
+          <div>
+            <dt>Format</dt>
+            <dd id="preview-format">—</dd>
+          </div>
+          <div>
+            <dt>Natural bitmap width</dt>
+            <dd id="preview-width">—</dd>
+          </div>
+          <div>
+            <dt>Natural bitmap height</dt>
+            <dd id="preview-height">—</dd>
+          </div>
+          <div>
+            <dt>Estimated encoded size</dt>
+            <dd id="preview-size">—</dd>
+          </div>
+          <div>
+            <dt>Captured</dt>
+            <dd id="preview-timestamp">—</dd>
+          </div>
+        </dl>
+        <button id="clear-preview" type="button" class="secondary-button">Clear preview</button>
+      </section>
+
+      <div id="live-status" class="live-status" role="status" aria-live="polite" aria-atomic="true" data-state="idle">
+        Idle — ready to capture a visible viewport.
       </div>
     </main>
 

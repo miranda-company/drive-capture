@@ -2,7 +2,19 @@
 
 DriveCapture is a planned Manifest V3 Chrome extension that will capture a high-resolution, full-page image of the active HTTP or HTTPS page and upload the resulting JPEG to a dedicated Google Drive folder created and managed by the extension.
 
-Phase 1 is implemented: the repository contains a loadable extension shell, an accessible popup, explicit message and error contracts, a session-backed scaffold job lock, a service-worker coordinator, a minimal offscreen document, and dependency-free unit tests. The unpacked-extension flow still requires the manual Chrome smoke test below. Screenshot capture, page scrolling, image stitching, authentication, Drive folder management, and upload behavior are not implemented. See [ROADMAP.md](ROADMAP.md) for the phased implementation plan.
+Phase 2A is implemented on top of the Phase 1 shell. After an explicit click, DriveCapture can validate the active page, capture exactly one visible viewport as a JPEG, and display a temporary popup preview with bitmap dimensions, estimated encoded size, and capture time. The image is not saved or uploaded. Full-page scrolling, stitching, authentication, Drive folder management, and upload behavior remain unimplemented. Real capture still requires the manual Chrome smoke test below. See [ROADMAP.md](ROADMAP.md) for the phased implementation plan.
+
+## Current Phase 2A behavior
+
+- Queries only the active tab in the current window after the user selects **Capture visible viewport**.
+- Accepts normal `http:` and `https:` pages.
+- Rejects browser-internal pages including `chrome://`, `chrome-extension://`, `edge://`, `about:`, `file:`, and `view-source:` pages.
+- Explicitly rejects `chromewebstore.google.com` and `chrome.google.com/webstore` pages.
+- Calls `chrome.tabs.captureVisibleTab()` exactly once with JPEG quality `92`; it does not retry automatically.
+- Uses the session-backed capture lock and releases it in `finally` on success or failure.
+- Sends the single JPEG data URL directly from the worker to the open popup for this proof of concept only.
+- Keeps the data URL only in popup module memory, removes the image source and references when cleared or closed, and never writes screenshot data to extension storage, IndexedDB, Cache Storage, the filesystem, or logs.
+- Does not use page-script injection, scrolling, Canvas, Blob processing, OAuth, Google Drive, downloads, the offscreen document, or external network requests for capture.
 
 ## User workflow
 
@@ -39,15 +51,17 @@ The popup will prevent overlapping capture jobs. Interactive OAuth will only beg
 
 ## Architecture
 
-DriveCapture separates privileged coordination from page interaction and DOM-based image processing.
+DriveCapture separates privileged coordination from page interaction and DOM-based image processing. Phase 2A implements only the single-viewport path described below; the remaining architecture is the target MVP design.
 
 ### Popup
 
-The popup starts capture from an explicit user action and displays capture, processing, authentication, upload, success, and error states. It does not process image pixels or retain OAuth tokens.
+In Phase 2A, the popup starts capture from an explicit user action and displays idle, page-validation, viewport-capture, success, and error states. It validates the returned JPEG result before assigning it to a responsive image and releases its temporary data URL on clear or popup close. Future authentication and upload states are not implemented.
 
 ### Manifest V3 service worker
 
-The service worker coordinates one capture job at a time. It queries the active tab, injects the page capture module with `chrome.scripting`, calls `chrome.tabs.captureVisibleTab()`, manages the offscreen document, obtains OAuth tokens with `chrome.identity`, and sends the short-lived token plus JSON-serializable file and folder metadata to the offscreen document. It never receives the final JPEG Blob.
+In Phase 2A, the service worker coordinates one capture job at a time, queries the active tab, rejects unsupported pages, calls `chrome.tabs.captureVisibleTab()` once, validates the JPEG data URL, and returns it temporarily to the popup. It does not store or log the image.
+
+In the future full-page pipeline, the worker will inject the page capture module, coordinate incremental viewport processing in the offscreen document, obtain OAuth tokens, and send short-lived tokens plus JSON metadata to the offscreen document. It will never receive the final stitched JPEG Blob.
 
 Service workers have no DOM or Canvas APIs, so stitching must not happen in the worker. Chrome runtime messages must be JSON-serializable; the design therefore does not attempt to send a Blob through `chrome.runtime` messaging.
 
@@ -55,13 +69,13 @@ Because MV3 workers may be suspended, the active capture-job lock and only the s
 
 ### Injected page capture module
 
-The injected module measures the document and CSS viewport, finds the scrolling element, scrolls to requested positions, reports actual positions, waits for layout to settle, and temporarily hides qualifying fixed or sticky elements after the first capture. Its cleanup path restores the original scroll position and every modified inline style.
+This module is planned but not implemented. It will measure the document and CSS viewport, find the scrolling element, scroll to requested positions, report actual positions, wait for layout to settle, and temporarily hide qualifying fixed or sticky elements after the first capture. Its cleanup path will restore the original scroll position and every modified inline style.
 
 The MVP will inject this module only after the action is invoked. It will not request persistent access to every website.
 
 ### Offscreen document
 
-The offscreen document owns the image and upload lifecycle. For every viewport, it receives one data URL, decodes and draws it immediately, returns a JSON acknowledgement, and releases that data URL and decoded bitmap before the next capture begins. It determines the real X/Y capture scale from the first bitmap and CSS viewport, stitches and crops segments, and encodes an `image/jpeg` Blob.
+The current offscreen document remains a Phase 1 communication shell and is not used by Phase 2A capture. In the future full-page pipeline, it will own the image and upload lifecycle. For every viewport, it will receive one data URL, decode and draw it immediately, return a JSON acknowledgement, and release that data URL and decoded bitmap before the next capture begins. It will determine the real X/Y capture scale from the first bitmap and CSS viewport, stitch and crop segments, and encode an `image/jpeg` Blob.
 
 The Blob stays inside the offscreen document. When stitching is complete, the service worker supplies a short-lived OAuth token and JSON metadata. The offscreen document uses Fetch directly for multipart or resumable Drive upload, then returns only JSON-serializable Drive metadata such as `id`, `name`, `webViewLink`, and `parents`. It releases the Blob, canvas, token reference, and upload state after success or failure. Access tokens and resumable-session URLs are never stored or logged.
 
@@ -80,7 +94,7 @@ The worker must guard this call with `chrome.runtime.getContexts()` and tolerate
 
 ### Google Drive client
 
-On first upload, the Drive flow creates a folder named `DriveCapture` with MIME type `application/vnd.google-apps.folder`. It may attach `appProperties` that identify the folder as DriveCapture's managed capture folder. The service worker stores the returned folder ID in `chrome.storage.local`, which keeps this installation-specific resource reference off sync storage.
+This client is planned but not implemented. On first upload, the future Drive flow will create a folder named `DriveCapture` with MIME type `application/vnd.google-apps.folder`. It may attach `appProperties` that identify the folder as DriveCapture's managed capture folder. The service worker will store the returned folder ID in `chrome.storage.local`, which keeps this installation-specific resource reference off sync storage.
 
 On later uploads, the offscreen upload flow validates the stored folder using the token and reuses it as the file's parent. If the folder is missing or inaccessible, the extension informs the user before creating a replacement and updating the locally stored ID. Google Picker selection of an existing folder is a later enhancement, not part of the normal MVP workflow.
 
@@ -104,10 +118,10 @@ The scaffold intentionally avoids `<all_urls>`. It also does not request the opt
 | Permission | Reason |
 | --- | --- |
 | `activeTab` | Grants temporary access to the current page after the user invokes the extension. |
-| `scripting` | Injects the local measurement, scrolling, and cleanup module into the active page. |
-| `identity` | Obtains and invalidates Google OAuth tokens through Chrome. |
+| `scripting` | Reserved for the future local measurement, scrolling, and cleanup module; unused in Phase 2A. |
+| `identity` | Reserved for future Google OAuth; unused in Phase 2A. |
 | `storage` | Stores the managed folder ID locally, portable preferences in sync storage, and the small active-job lock/metadata in session storage. |
-| `offscreen` | Creates an extension document with DOM, Canvas, Blob, and Fetch access for incremental image processing, encoding, and direct Drive upload. |
+| `offscreen` | Supports the Phase 1 lifecycle diagnostic and is reserved for future image processing/upload; unused by Phase 2A capture. |
 | `https://www.googleapis.com/*` | Allows direct requests to Google Drive API endpoints. |
 
 The OAuth scope is `https://www.googleapis.com/auth/drive.file`. It allows DriveCapture to work with files it creates or that the user explicitly opens with the app, without granting general access to all Drive files. The extension contains no OAuth client secret.
@@ -172,7 +186,7 @@ After loading or reloading the unpacked extension:
 1. Confirm Chrome reports no manifest or missing-resource error on the DriveCapture card.
 2. Select the DriveCapture toolbar action and confirm the popup opens.
 3. Confirm the popup displays `DriveCapture`, the scaffold-installed message, and `Connected` for the service worker.
-4. Confirm **Capture and upload** is disabled and the notice states that capture, Google authorization, and Drive upload are not implemented.
+4. Confirm **Run scaffold check** and **Capture visible viewport** are present, and do not start capture during this scaffold-only check.
 5. Use the keyboard to focus **Run scaffold check** and confirm a clearly visible focus indicator.
 6. Select **Run scaffold check**.
 7. Confirm the live status reports that the job lock was acquired and released and that the offscreen document was created or reused, pinged, and closed.
@@ -181,6 +195,10 @@ After loading or reloading the unpacked extension:
 10. Confirm the check causes no OAuth prompt, active-tab inspection, screenshot capture, script injection, or external network request.
 
 `Run scaffold check` verifies only Phase 1 infrastructure: popup-to-worker messaging, the `chrome.storage.session` job lock, guarded offscreen creation through `chrome.runtime.getContexts()`, worker-to-offscreen ping messaging, offscreen closure, and `finally`-based lock release. It does not exercise future screenshot or Drive functionality.
+
+## Phase 2A manual Chrome verification
+
+On 2026-07-17, the visible-viewport capture was manually tested in Chrome. This record intentionally makes no additional manual claims about restricted-page handling, preview clearing, concurrent capture, extension storage, network activity, or service-worker console output because those checks were not separately reported as completed.
 
 ## Future implementation testing plan
 
@@ -201,7 +219,10 @@ Once the relevant roadmap phase is implemented:
 
 - Capture begins only after an explicit user action.
 - `activeTab` is used instead of persistent website access.
-- Screenshot bytes are sent only to Google Drive.
+- In Phase 2A, screenshot bytes travel only from Chrome to the service worker and directly to the open popup for temporary preview; no network request is made.
+- The Phase 2A data URL is removed from popup state and the image `src` when the preview is cleared or the popup closes.
+- Screenshot data is never stored in `chrome.storage`, IndexedDB, Cache Storage, the filesystem, or logs.
+- In the future production flow, screenshot bytes will be sent only to Google Drive.
 - The extension requests only `drive.file`, not full Drive access.
 - Access tokens are held in memory only as needed, never stored in `chrome.storage`, and never logged.
 - Resumable-session URLs are retained only in offscreen memory for the active upload and are never stored or logged.
@@ -237,8 +258,8 @@ The Drive API may return `404` to avoid revealing an inaccessible folder, or `40
 
 ### Unsupported page
 
-DriveCapture will support ordinary HTTP and HTTPS pages. Chrome internal pages, the Chrome Web Store, and other restricted contexts cannot be injected into reliably. Navigate to a normal webpage and start a new capture.
+DriveCapture accepts ordinary HTTP and HTTPS pages. It rejects browser-internal protocols, local files, source views, both Chrome Web Store hosts, missing tabs, and malformed page addresses. Navigate to a normal webpage and start a new capture.
 
 ## Project status
 
-Phase 1 code and automated checks are complete. The shell is designed to be loadable in Chrome 116 or later, but successful unpacked loading and the popup scaffold check must be confirmed with the manual smoke test above. Phase 2 and all production capture, OAuth, folder, and upload behavior remain unimplemented.
+Phase 2A code and automated checks are complete, and visible-viewport capture has been manually tested in Chrome. Full Phase 2 scrolling and stitching, plus all OAuth, folder, and upload behavior, remain unimplemented.

@@ -81,6 +81,30 @@ tests/
 
 ## Phase 2: Viewport capture, scrolling, and canvas stitching
 
+### Phase 2A checkpoint: single visible-viewport capture
+
+**Status:** Implemented on 2026-07-17. Unit tests and static checks cover the adapter, supported-page rules, JPEG data URL/size validation, capture result contract, session lock, one-call coordinator behavior, and popup message path. Visible-viewport capture has also been manually tested in Chrome. Phase 2 as a whole is not complete.
+
+Implemented in this checkpoint:
+
+- Query exactly the active tab in the current window through an injectable adapter.
+- Validate tab/window identifiers and allow only normal HTTP(S) pages, excluding both Chrome Web Store hosts.
+- Acquire the session-backed job lock, call `captureVisibleTab()` once with JPEG quality `92`, validate the returned data URL, and release the lock in `finally`.
+- Return an explicit `visible-viewport` result without URL or title metadata.
+- Preview the JPEG temporarily in the popup with accessible progress, error, metadata, clear, focus, and teardown behavior.
+- Keep screenshot data out of all storage, logs, files, network requests, error context, and the offscreen document.
+- Preserve the Chrome 116-compatible non-async message-listener response pattern.
+
+Still pending for the rest of Phase 2:
+
+- Page-script injection, document measurement, scrolling, sticky/fixed-element handling, throttled multi-segment capture, incremental offscreen processing, measured bitmap scaling, Canvas stitching/cropping, and full-page cleanup.
+
+Phase 2A acceptance status:
+
+- Automated: all injected-adapter tests pass, including one capture call, correct window/quality, lock release on failure, concurrent rejection, unsupported pages, malformed results, and safe adapter failures.
+- Static: the permission boundary is unchanged and no screenshot storage, OAuth, Drive, Fetch, injection, scrolling, Canvas, Blob processing, download, or network behavior was added.
+- Manual: visible-viewport capture was tested in Chrome. No separate completion claim is recorded for restricted-page, preview-clear, concurrency, storage, network, or console checks.
+
 ### Objective
 
 Reliably capture bounded static pages by coordinating page scrolling, throttled viewport screenshots, and offscreen canvas stitching, while always restoring the page.

@@ -17,11 +17,17 @@ import {
   validateMessageEnvelope
 } from "../shared/messages.js";
 import { createJobState } from "./job-state.js";
+import { createChromeTabAdapter } from "./tab-adapter.js";
+import { createVisibleViewportCaptureCoordinator } from "./visible-viewport-capture.js";
 
 const jobState = createJobState();
+const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
+  tabAdapter: createChromeTabAdapter(),
+  jobState
+});
 
 chrome.runtime.onInstalled.addListener(() => {
-  // Phase 1 intentionally performs no authentication, capture, or network work.
+  // Installation intentionally performs no authentication, capture, or network work.
 });
 
 function getResponseTarget(message) {
@@ -30,7 +36,10 @@ function getResponseTarget(message) {
 
 function createErrorResponse(request, error) {
   return createMessage({
-    type: MESSAGE_TYPES.APPLICATION_ERROR_RESPONSE,
+    type:
+      request?.type === MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_REQUEST
+        ? MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_ERROR
+        : MESSAGE_TYPES.APPLICATION_ERROR_RESPONSE,
     source: CONTEXTS.SERVICE_WORKER,
     target: getResponseTarget(request),
     requestId:
@@ -41,6 +50,20 @@ function createErrorResponse(request, error) {
       ok: false,
       error: serializeUnknownError(error)
     }
+  });
+}
+
+function notifyVisibleViewportCaptureStarted(requestId) {
+  const message = createMessage({
+    type: MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_STARTED,
+    source: CONTEXTS.SERVICE_WORKER,
+    target: CONTEXTS.POPUP,
+    requestId,
+    payload: { state: "capturing-viewport" }
+  });
+
+  void chrome.runtime.sendMessage(message).catch(() => {
+    // The popup may have closed. Capture cleanup and the main response continue.
   });
 }
 
@@ -218,6 +241,24 @@ async function handleMessage(message) {
         throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
       }
       return runScaffoldCheck(message);
+
+    case MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP) {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+
+      const result = await visibleViewportCapture.captureVisibleViewport({
+        onCaptureStarted: () => notifyVisibleViewportCaptureStarted(message.requestId)
+      });
+
+      return createMessage({
+        type: MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_SUCCESS,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload: result
+      });
+    }
 
     default:
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
