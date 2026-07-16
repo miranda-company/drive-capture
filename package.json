@@ -1,0 +1,11 @@
+{
+  "name": "drive-capture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check:syntax": "node --check src/shared/constants.js && node --check src/shared/messages.js && node --check src/shared/errors.js && node --check src/background/job-state.js && node --check src/background/service-worker.js && node --check src/offscreen/offscreen.js && node --check src/popup/popup.js && node --check tests/messages.test.js && node --check tests/errors.test.js && node --check tests/job-state.test.js",
+    "check": "npm run check:syntax && npm test"
+  }
+}

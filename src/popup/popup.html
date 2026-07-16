@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DriveCapture</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Chrome extension scaffold</p>
+        <h1>DriveCapture</h1>
+        <p>The Phase 1 extension scaffold is installed.</p>
+      </header>
+
+      <section class="connection" aria-labelledby="connection-heading">
+        <h2 id="connection-heading">Service worker</h2>
+        <p id="worker-status" class="status-badge" data-state="pending">Checking connection…</p>
+      </section>
+
+      <section aria-labelledby="checks-heading">
+        <h2 id="checks-heading">Scaffold diagnostics</h2>
+        <p>Verify the job lock and the offscreen document lifecycle.</p>
+        <button id="scaffold-check" type="button">Run scaffold check</button>
+        <button type="button" disabled>Capture and upload</button>
+      </section>
+
+      <p class="notice">Screenshot capture, Google authorization, and Drive upload are not implemented yet.</p>
+
+      <div id="live-status" class="live-status" role="status" aria-live="polite" aria-atomic="true">
+        Ready to check the scaffold.
+      </div>
+    </main>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
