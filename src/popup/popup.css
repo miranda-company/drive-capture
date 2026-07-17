@@ -104,6 +104,7 @@ select:focus-visible {
 }
 
 .connection,
+.drive-setup,
 section[aria-labelledby="checks-heading"],
 section[aria-labelledby="capture-heading"],
 section[aria-labelledby="diagnostic-heading"],
@@ -113,6 +114,11 @@ section[aria-labelledby="full-page-heading"],
   padding: 0.85rem;
   border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
   border-radius: 0.65rem;
+}
+
+.drive-actions {
+  display: grid;
+  gap: 0.15rem;
 }
 
 .diagnostic-results {

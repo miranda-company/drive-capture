@@ -322,11 +322,33 @@ tests/
   canvas-stitcher.test.js
 ```
 
-## Phase 4: Google OAuth authentication
+### Phase 3B checkpoint: Google OAuth and managed-folder setup
+
+**Status:** Phase 3B implementation is complete and automated verification passes. The OAuth client remains unconfigured because the manifest retains the recognizable placeholder. Chrome OAuth consent was not tested and no real managed Drive folder was created. Folder validation, discovery, creation, renaming, reconnection, and account-change behavior remain pending manual verification. Screenshot upload is not implemented. Phase 3A browser verification and Phase 2E real-page verification also remain pending.
+
+Completed:
+
+- Pure validation for missing, placeholder, malformed, and plausible Chrome Extension OAuth client IDs plus the exact single `drive.file` scope.
+- Non-interactive derived status and an explicit interactive Connect path, both service-worker-only.
+- Transient token lifecycle, scope confirmation, one invalidation/non-interactive retry after `401`, explicit cached-token clearing, and account-change cache clearing.
+- A fixed JSON-only Drive client with three metadata request shapes: get a cached folder, list marked folders, and create the managed folder.
+- Validated local folder cache containing only `{ folderId, schemaVersion }`.
+- Marker-authoritative validation, rename support, bounded marker discovery, deterministic duplicate selection, and metadata-only creation.
+- Shared-lock exclusion between Drive mutations and capture jobs.
+- Safe popup status with no token, raw ID, raw Google error, or implication that screenshot upload is available.
+
+Not implemented:
+
+- Screenshot, media, multipart, or resumable upload; download; sharing; permissions management; cloud screenshot persistence; or horizontal capture.
+- A real OAuth client ID or completed Chrome/Drive manual verification.
+
+The Phase 3B folder is preparation for a later upload phase. Google Drive integration is not complete.
+
+## Phase 4: Production OAuth configuration and upload authorization handoff
 
 ### Objective
 
-Authenticate through Chrome Identity with the least-privileged Drive scope and predictable token lifecycle behavior.
+Complete real-client configuration and manually accept the Phase 3B authentication lifecycle before adding any upload token handoff.
 
 ### Implementation tasks
 

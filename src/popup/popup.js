@@ -28,6 +28,7 @@ import {
   resolveStoredJpegQuality
 } from "../shared/output-settings.js";
 import { createAutomaticOutputFilename } from "../shared/output-filename.js";
+import { formatDriveStatus } from "../shared/google-drive.js";
 
 const workerStatus = document.querySelector("#worker-status");
 const liveStatus = document.querySelector("#live-status");
@@ -61,6 +62,13 @@ const suppressOverlaysOption = document.querySelector("#suppress-overlays");
 const outputFilenameInput = document.querySelector("#output-filename");
 const jpegQualitySelect = document.querySelector("#jpeg-quality");
 const automaticFilenamePreview = document.querySelector("#automatic-filename-preview");
+const driveConfiguration = document.querySelector("#drive-configuration");
+const driveConnection = document.querySelector("#drive-connection");
+const driveFolder = document.querySelector("#drive-folder");
+const driveOutcome = document.querySelector("#drive-outcome");
+const driveConnectButton = document.querySelector("#drive-connect");
+const driveCheckFolderButton = document.querySelector("#drive-check-folder");
+const driveDisconnectButton = document.querySelector("#drive-disconnect");
 
 let activeCaptureRequestId = null;
 let pendingPreviewResult = null;
@@ -68,6 +76,8 @@ let previewDataUrl = null;
 let activeDiagnosticRequestId = null;
 let activeSegmentedRequestId = null;
 let activeFullPageRequestId = null;
+let activeDriveSetupRequestId = null;
+let lastDriveSetupResult = null;
 
 function userSafeError(response, fallback) {
   const error = response?.payload?.error;
@@ -102,6 +112,50 @@ function setBusy(isBusy) {
   suppressOverlaysOption.disabled = isBusy;
   outputFilenameInput.disabled = isBusy;
   jpegQualitySelect.disabled = isBusy;
+  driveConnectButton.disabled = isBusy || !lastDriveSetupResult?.configured ||
+    lastDriveSetupResult?.connected;
+  driveCheckFolderButton.disabled = isBusy || !lastDriveSetupResult?.connected;
+  driveDisconnectButton.disabled = isBusy || !lastDriveSetupResult?.connected;
+}
+
+function showDriveSetupResult(result) {
+  lastDriveSetupResult = result;
+  const display = formatDriveStatus(result);
+  driveConfiguration.textContent = display.configuration;
+  driveConnection.textContent = display.connection;
+  driveFolder.textContent = display.folder;
+  driveOutcome.textContent = display.outcome;
+  driveConnectButton.disabled = !result.configured || result.connected;
+  driveCheckFolderButton.disabled = !result.configured || !result.connected;
+  driveDisconnectButton.disabled = !result.configured || !result.connected;
+}
+
+async function runDriveSetupAction(type, { busy = true } = {}) {
+  if (busy) setBusy(true);
+  const request = createWorkerRequest(type);
+  activeDriveSetupRequestId = request.requestId;
+  try {
+    const response = await chrome.runtime.sendMessage(request);
+    if (!validateMessageEnvelope(response) || response.requestId !== request.requestId) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type === MESSAGE_TYPES.DRIVE_SETUP_ERROR) {
+      throw validateApplicationError(response.payload.error)
+        ? response.payload.error
+        : createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type !== MESSAGE_TYPES.DRIVE_SETUP_RESULT) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    showDriveSetupResult(response.payload);
+  } catch (error) {
+    driveOutcome.textContent = validateApplicationError(error)
+      ? error.message
+      : "Drive setup could not be checked.";
+  } finally {
+    activeDriveSetupRequestId = null;
+    if (busy) setBusy(false);
+  }
 }
 
 function showFullPageResult(result) {
@@ -666,6 +720,24 @@ chrome.runtime.onMessage.addListener((message) => {
     if (progress.state === "restoring-overlays") setCaptureState("restoring-overlays", "Restoring page overlays…");
   }
 
+  if (validateMessageEnvelope(message) &&
+      message.type === MESSAGE_TYPES.DRIVE_SETUP_PROGRESS &&
+      message.source === CONTEXTS.SERVICE_WORKER &&
+      message.target === CONTEXTS.POPUP &&
+      message.requestId === activeDriveSetupRequestId) {
+    driveOutcome.textContent = message.payload.state === "connecting"
+      ? "Waiting for Google authorization…"
+      : "Checking the managed DriveCapture folder…";
+  }
+
+  if (validateMessageEnvelope(message) &&
+      message.type === MESSAGE_TYPES.DRIVE_SETUP_RESULT &&
+      message.source === CONTEXTS.SERVICE_WORKER &&
+      message.target === CONTEXTS.POPUP &&
+      activeDriveSetupRequestId === null) {
+    showDriveSetupResult(message.payload);
+  }
+
   return false;
 });
 
@@ -680,6 +752,12 @@ fullPageButton.addEventListener("click", runFullPageCapture);
 cancelFullPageButton.addEventListener("click", cancelFullPageCapture);
 clearFullPageButton.addEventListener("click", () => clearFullPageResult());
 jpegQualitySelect.addEventListener("change", saveJpegQualityPreference);
+driveConnectButton.addEventListener("click", () =>
+  runDriveSetupAction(MESSAGE_TYPES.DRIVE_SETUP_CONNECT_REQUEST));
+driveCheckFolderButton.addEventListener("click", () =>
+  runDriveSetupAction(MESSAGE_TYPES.DRIVE_SETUP_ENSURE_FOLDER_REQUEST));
+driveDisconnectButton.addEventListener("click", () =>
+  runDriveSetupAction(MESSAGE_TYPES.DRIVE_SETUP_DISCONNECT_REQUEST));
 fullPagePreviewImage.addEventListener("error", () => {
   void clearFullPageResult({ announce: false });
   setCaptureState("full-page-failed", "Capture failed — the temporary full-page preview could not be displayed.");
@@ -695,3 +773,4 @@ void checkWorkerConnection();
 void loadJpegQualityPreference();
 void refreshAutomaticFilenamePreview();
 void restoreFullPageResult();
+void runDriveSetupAction(MESSAGE_TYPES.DRIVE_SETUP_STATUS_REQUEST, { busy: false });

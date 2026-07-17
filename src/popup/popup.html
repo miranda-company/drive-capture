@@ -9,7 +9,7 @@
   <body>
     <main>
       <header>
-        <p class="eyebrow">Phase 3A output configuration</p>
+        <p class="eyebrow">Phase 3B Drive setup</p>
         <h1>DriveCapture</h1>
         <p>Capture one visible browser viewport for a temporary preview.</p>
       </header>
@@ -17,6 +17,22 @@
       <section class="connection" aria-labelledby="connection-heading">
         <h2 id="connection-heading">Service worker</h2>
         <p id="worker-status" class="status-badge" data-state="pending">Checking connection…</p>
+      </section>
+
+      <section class="drive-setup" aria-labelledby="drive-setup-heading">
+        <h2 id="drive-setup-heading">Google Drive setup</h2>
+        <p>No screenshots are uploaded in this phase.</p>
+        <dl class="metadata">
+          <div><dt>OAuth</dt><dd id="drive-configuration">Checking…</dd></div>
+          <div><dt>Connection</dt><dd id="drive-connection">Checking…</dd></div>
+          <div><dt>Managed folder</dt><dd id="drive-folder">Not checked</dd></div>
+        </dl>
+        <p id="drive-outcome" class="option-warning">Checking Drive setup without prompting…</p>
+        <div class="drive-actions">
+          <button id="drive-connect" type="button" disabled>Connect Google Drive</button>
+          <button id="drive-check-folder" type="button" class="secondary-button" disabled>Check Drive folder</button>
+          <button id="drive-disconnect" type="button" class="secondary-button" disabled>Disconnect</button>
+        </div>
       </section>
 
       <section aria-labelledby="checks-heading">

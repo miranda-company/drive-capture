@@ -26,6 +26,10 @@ import { createSegmentedCaptureDiagnosticCoordinator } from "./segmented-capture
 import { createOffscreenStitchAdapter } from "./offscreen-stitch-adapter.js";
 import { createFullPageCaptureCoordinator } from "./full-page-capture.js";
 import { requireJpegQuality } from "../shared/output-settings.js";
+import { createGoogleAuth } from "./google-auth.js";
+import { createGoogleDriveClient } from "./google-drive-client.js";
+import { createManagedDriveFolder } from "./managed-drive-folder.js";
+import { createDriveSetupCoordinator } from "./drive-setup-coordinator.js";
 
 const jobState = createJobState();
 const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
@@ -50,6 +54,16 @@ const fullPageCapture = createFullPageCaptureCoordinator({
   offscreenAdapter: offscreenStitchAdapter,
   jobState
 });
+const googleAuth = createGoogleAuth();
+const googleDriveClient = createGoogleDriveClient();
+const managedDriveFolder = createManagedDriveFolder();
+const driveSetup = createDriveSetupCoordinator({
+  auth: googleAuth,
+  driveClient: googleDriveClient,
+  managedFolder: managedDriveFolder,
+  jobState,
+  onProgress: (payload) => notifyDriveSetupProgress(payload)
+});
 
 chrome.runtime.onInstalled.addListener(() => {
   // Installation intentionally performs no authentication, capture, or network work.
@@ -68,8 +82,15 @@ function createErrorResponse(request, error) {
           ? MESSAGE_TYPES.SCROLL_DIAGNOSTIC_ERROR
           : request?.type === MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_REQUEST
             ? MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_ERROR
-          : request?.type === MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST
+        : request?.type === MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST
             ? MESSAGE_TYPES.FULL_PAGE_CAPTURE_ERROR
+          : [
+              MESSAGE_TYPES.DRIVE_SETUP_STATUS_REQUEST,
+              MESSAGE_TYPES.DRIVE_SETUP_CONNECT_REQUEST,
+              MESSAGE_TYPES.DRIVE_SETUP_ENSURE_FOLDER_REQUEST,
+              MESSAGE_TYPES.DRIVE_SETUP_DISCONNECT_REQUEST
+            ].includes(request?.type)
+            ? MESSAGE_TYPES.DRIVE_SETUP_ERROR
         : MESSAGE_TYPES.APPLICATION_ERROR_RESPONSE,
     source: CONTEXTS.SERVICE_WORKER,
     target: getResponseTarget(request),
@@ -124,6 +145,19 @@ function notifyFullPageCaptureProgress(requestId, payload) {
     source: CONTEXTS.SERVICE_WORKER,
     target: CONTEXTS.POPUP,
     requestId,
+    payload
+  })).catch(() => {});
+}
+
+let activeDriveSetupRequestId = null;
+
+function notifyDriveSetupProgress(payload) {
+  if (!activeDriveSetupRequestId) return;
+  void chrome.runtime.sendMessage(createMessage({
+    type: MESSAGE_TYPES.DRIVE_SETUP_PROGRESS,
+    source: CONTEXTS.SERVICE_WORKER,
+    target: CONTEXTS.POPUP,
+    requestId: activeDriveSetupRequestId,
     payload
   })).catch(() => {});
 }
@@ -447,6 +481,35 @@ async function handleMessage(message) {
       });
     }
 
+    case MESSAGE_TYPES.DRIVE_SETUP_STATUS_REQUEST:
+    case MESSAGE_TYPES.DRIVE_SETUP_CONNECT_REQUEST:
+    case MESSAGE_TYPES.DRIVE_SETUP_ENSURE_FOLDER_REQUEST:
+    case MESSAGE_TYPES.DRIVE_SETUP_DISCONNECT_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP ||
+          Object.keys(message.payload).length !== 0) {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+      activeDriveSetupRequestId = message.requestId;
+      try {
+        const payload = message.type === MESSAGE_TYPES.DRIVE_SETUP_STATUS_REQUEST
+          ? await driveSetup.status()
+          : message.type === MESSAGE_TYPES.DRIVE_SETUP_CONNECT_REQUEST
+            ? await driveSetup.connect()
+            : message.type === MESSAGE_TYPES.DRIVE_SETUP_ENSURE_FOLDER_REQUEST
+              ? await driveSetup.ensureFolder()
+              : await driveSetup.disconnect();
+        return createMessage({
+          type: MESSAGE_TYPES.DRIVE_SETUP_RESULT,
+          source: CONTEXTS.SERVICE_WORKER,
+          target: CONTEXTS.POPUP,
+          requestId: message.requestId,
+          payload
+        });
+      } finally {
+        activeDriveSetupRequestId = null;
+      }
+    }
+
     default:
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
   }
@@ -468,4 +531,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
 
   return true;
+});
+
+chrome.identity.onSignInChanged.addListener((_account, _signedIn) => {
+  void driveSetup.handleAccountChange()
+    .then(() => driveSetup.status())
+    .then((payload) => chrome.runtime.sendMessage(createMessage({
+      type: MESSAGE_TYPES.DRIVE_SETUP_RESULT,
+      source: CONTEXTS.SERVICE_WORKER,
+      target: CONTEXTS.POPUP,
+      payload
+    })))
+    .catch(() => {});
 });
