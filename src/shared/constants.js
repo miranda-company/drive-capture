@@ -8,6 +8,9 @@ export const CONTEXTS = Object.freeze({
 });
 
 export const DEFAULT_JPEG_QUALITY = 0.92;
+export const ALLOWED_JPEG_QUALITIES = Object.freeze([0.8, 0.9, 0.92, 0.95]);
+export const MAX_OUTPUT_FILENAME_LENGTH = 140;
+export const MAX_PAGE_LABEL_LENGTH = 70;
 export const VISIBLE_VIEWPORT_JPEG_QUALITY = 92;
 export const MINIMUM_CAPTURE_INTERVAL_MS = 550;
 export const MAX_DIAGNOSTIC_SCROLL_STEPS = 100;
@@ -38,5 +41,5 @@ export const STORAGE_KEYS = Object.freeze({
   CAPTURE_DELAY_MS: "captureDelayMs"
 });
 
-export const CURRENT_EXTENSION_PHASE = "phase-2e-overlay-suppression";
+export const CURRENT_EXTENSION_PHASE = "phase-3a-output-configuration";
 export const OFFSCREEN_DOCUMENT_PATH = "src/offscreen/offscreen.html";

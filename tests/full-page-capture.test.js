@@ -64,7 +64,15 @@ function harness(overrides = {}) {
     ...overrides.pageAdapter
   };
   const tabAdapter = {
-    async queryActiveTab() { calls.push("query"); return [{ id: 4, windowId: 8, url: "https://example.com" }]; },
+    async queryActiveTab() {
+      calls.push("query");
+      return [{
+        id: 4,
+        windowId: 8,
+        url: "https://example.com/private/path?token=secret",
+        title: "Example / Page"
+      }];
+    },
     async captureVisibleTab() { calls.push(`capture:${clock}`); return JPEG; },
     ...overrides.tabAdapter
   };
@@ -77,13 +85,23 @@ function harness(overrides = {}) {
   const offscreenAdapter = {
     async ensureDocument() { calls.push("offscreen-open"); },
     async clearResult() { calls.push("result-clear"); return { cleared: false }; },
-    async startSession() { calls.push("session-start"); },
+    async startSession(payload) {
+      calls.push("session-start");
+      calls.push(`output:${payload.filename}:${payload.jpegQuality}`);
+    },
     async drawSegment(payload) { calls.push(`draw:${payload.segmentIndex}`); return { segmentIndex: payload.segmentIndex }; },
     async finishSession() {
       calls.push("session-finish");
       return { available: true, previewUrl: "blob:full-page", mimeType: "image/jpeg",
-        width: 200, height: 240, encodedBytes: 1000, createdAt: 3000,
-        segmentCount: 3, placements, horizontalOverflow: false, scale: { x: 2, y: 2 },
+        format: "JPEG",
+        filename: "DriveCapture_Example-Page_1970-01-01_00-00-01-000.jpg",
+        filenameSource: "automatic",
+        width: 200, height: 240, pixelWidth: 200, pixelHeight: 240,
+        encodedBytes: 1000, blobSize: 1000, createdAt: 3000,
+        jpegQuality: 0.92, megapixels: 0.048, aspectRatio: 200 / 240,
+        validJpegSignature: true,
+        segmentCount: 3, placements, horizontalOverflow: false,
+        scale: { x: 2, y: 2 }, captureScale: { x: 2, y: 2 },
         stitchingDiagnostics: {
           totalOverlapPixels: 60,
           totalNewlyCoveredPixels: 240,
@@ -120,6 +138,14 @@ test("captures, draws, and releases one segment at a time with 550 ms pacing", a
   );
   assert.ok(setup.calls.indexOf("overlay-prepare:true") < setup.calls.indexOf("capture:1550"));
   assert.ok(setup.calls.indexOf("overlay-restore") < setup.calls.indexOf("restore"));
+  assert.equal(setup.calls.some((value) =>
+    /^output:DriveCapture_Example-Page_1970-01-01_\d{2}-00-01-000\.jpg:0\.92$/u.test(value)
+  ), true);
+  assert.equal(result.filename.includes("private"), false);
+  assert.equal(result.filename.includes("token"), false);
+  assert.deepEqual(result.captureScale, { x: 2, y: 2 });
+  assert.equal(result.validJpegSignature, true);
+  assert.equal(result.blobSize, 1000);
 });
 
 test("does not capture the next viewport before the draw acknowledgement", async () => {
@@ -190,9 +216,12 @@ test("cancellation during capture throttling prevents later captures and cleans 
   assert.equal(await setup.jobState.readActiveJob(), null);
 });
 
-test("draw and encoding failures discard the partial result and complete cleanup", async () => {
-  for (const method of ["drawSegment", "finishSession"]) {
-    const code = method === "drawSegment" ? "SEGMENT_GAP_DETECTED" : "IMAGE_ENCODING_FAILED";
+test("draw, encoding, and JPEG validation failures discard the partial result and complete cleanup", async () => {
+  for (const [method, code] of [
+    ["drawSegment", "SEGMENT_GAP_DETECTED"],
+    ["finishSession", "IMAGE_ENCODING_FAILED"],
+    ["finishSession", "JPEG_VALIDATION_FAILED"]
+  ]) {
     const setup = harness({ offscreenAdapter: {
       async [method]() { throw { code, message: "Safe failure.", retryable: false, context: {} }; }
     } });
@@ -241,7 +270,7 @@ test("suppression can be disabled without page overlay calls or modifications", 
   const setup = harness();
   const result = await setup.coordinator.run({
     requestId: "request-1",
-    suppressOverlays: false
+    suppressRepeatedOverlays: false
   });
   assert.equal(setup.calls.some((value) => value.startsWith("overlay-")), false);
   assert.deepEqual(result.overlayHandling, {
@@ -252,6 +281,36 @@ test("suppression can be disabled without page overlay calls or modifications", 
     restorationSucceeded: true,
     restorationApplicable: true
   });
+});
+
+test("passes a sanitized custom filename and selected quality to offscreen", async () => {
+  const setup = harness();
+  await setup.coordinator.run({
+    requestId: "request-1",
+    requestedFilename: "  Quarterly / Report.JPEG.jpg ",
+    jpegQuality: 0.95
+  });
+  assert.equal(
+    setup.calls.includes("output:Quarterly-Report.jpg:0.95"),
+    true
+  );
+});
+
+test("rejects invalid filename and quality before acquiring the lock or scrolling", async () => {
+  for (const options of [
+    { requestedFilename: "...---..." },
+    { jpegQuality: 0.91 }
+  ]) {
+    const setup = harness();
+    await assert.rejects(
+      setup.coordinator.run({ requestId: "invalid", ...options }),
+      (error) => error.code === (
+        options.jpegQuality ? "INVALID_JPEG_QUALITY" : "INVALID_OUTPUT_FILENAME"
+      )
+    );
+    assert.deepEqual(setup.calls, []);
+    assert.equal(await setup.jobState.readActiveJob(), null);
+  }
 });
 
 test("reports detected, suppressed, and restored overlays after successful cleanup", async () => {

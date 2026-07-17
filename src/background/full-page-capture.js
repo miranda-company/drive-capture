@@ -1,5 +1,6 @@
 import {
   CANCELLATION_POLL_INTERVAL_MS,
+  DEFAULT_JPEG_QUALITY,
   DIAGNOSTIC_RENDER_DELAY_MS,
   MAX_DIAGNOSTIC_PLAN_REVISIONS,
   MAX_DIAGNOSTIC_SCROLL_STEPS,
@@ -15,6 +16,10 @@ import {
 import { createApplicationError, ERROR_CODES, validateApplicationError } from "../shared/errors.js";
 import { createPageMeasurement, validateDocumentIdentity, validateRestorationResult, validateScrollStepResult } from "../shared/page-measurement.js";
 import { createRequestId } from "../shared/messages.js";
+import {
+  resolveOutputFilename
+} from "../shared/output-filename.js";
+import { requireJpegQuality } from "../shared/output-settings.js";
 import { createVerticalScrollPlan } from "../shared/scroll-plan.js";
 import { validateFullPageResult } from "../shared/stitching.js";
 import {
@@ -66,11 +71,18 @@ export function createFullPageCaptureCoordinator({
 
   async function run({
     requestId,
-    suppressOverlays = true,
+    requestedFilename = "",
+    jpegQuality = DEFAULT_JPEG_QUALITY,
+    suppressRepeatedOverlays = true,
     onProgress = () => undefined
   }) {
-    if (typeof suppressOverlays !== "boolean") {
+    if (typeof suppressRepeatedOverlays !== "boolean" ||
+        typeof requestedFilename !== "string") {
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    requireJpegQuality(jpegQuality);
+    if (requestedFilename.trim() !== "") {
+      resolveOutputFilename({ requestedFilename, now });
     }
     const jobId = createJobId();
     const startedAt = now();
@@ -85,6 +97,7 @@ export function createFullPageCaptureCoordinator({
     let identity;
     let restoration;
     let result;
+    let output;
     let operationError;
     let currentDataUrl = null;
     let overlayHandlingStarted = false;
@@ -104,6 +117,12 @@ export function createFullPageCaptureCoordinator({
       onProgress({ state: "measuring-page" });
       tab = validateActiveTabResults(await tabAdapter.queryActiveTab());
       operation.tabId = tab.id;
+      output = resolveOutputFilename({
+        requestedFilename,
+        title: tab.title,
+        hostname: new URL(tab.url).hostname,
+        now: () => startedAt
+      });
       checkCancelled(requestId);
       await pageAdapter.inject(tab.id);
       const initializedPage = await pageAdapter.initialize(tab.id, requestId, {
@@ -175,13 +194,16 @@ export function createFullPageCaptureCoordinator({
           await offscreenAdapter.startSession({
             sessionId: jobId,
             expectedMaximumSegments: MAX_DIAGNOSTIC_SCROLL_STEPS,
-            documentDimensions: { ...measurement.document }
+            documentDimensions: { ...measurement.document },
+            jpegQuality,
+            filename: output.filename,
+            filenameSource: output.source
           });
           sessionStarted = true;
         }
         previousHeight = measurement.document.height;
 
-        if (suppressOverlays) {
+        if (suppressRepeatedOverlays) {
           checkCancelled(requestId);
           onProgress({
             state: index === 0 ? "inspecting-overlays" : "suppressing-overlays",
@@ -259,7 +281,9 @@ export function createFullPageCaptureCoordinator({
       onProgress({ state: "encoding-image" });
       result = await offscreenAdapter.finishSession({ sessionId: jobId });
       sessionFinished = true;
-      if (!validateFullPageResult(result)) throw createApplicationError({ code: ERROR_CODES.INVALID_CAPTURE_RESULT });
+      if (!validateFullPageResult(result)) {
+        throw createApplicationError({ code: ERROR_CODES.OUTPUT_METADATA_INVALID });
+      }
       checkCancelled(requestId);
     } catch (error) {
       operationError = structured(error);
@@ -341,14 +365,14 @@ export function createFullPageCaptureCoordinator({
       ...result,
       restoration,
       overlayHandling: {
-        enabled: suppressOverlays,
-        detected: suppressOverlays ? overlayRestoration.detected : 0,
-        suppressed: suppressOverlays ? overlayRestoration.suppressed : 0,
-        restored: suppressOverlays ? overlayRestoration.restored : 0,
-        restorationSucceeded: suppressOverlays
+        enabled: suppressRepeatedOverlays,
+        detected: suppressRepeatedOverlays ? overlayRestoration.detected : 0,
+        suppressed: suppressRepeatedOverlays ? overlayRestoration.suppressed : 0,
+        restored: suppressRepeatedOverlays ? overlayRestoration.restored : 0,
+        restorationSucceeded: suppressRepeatedOverlays
           ? overlayRestoration.restorationSucceeded
           : true,
-        restorationApplicable: suppressOverlays
+        restorationApplicable: suppressRepeatedOverlays
           ? overlayRestoration.applicable
           : true
       },

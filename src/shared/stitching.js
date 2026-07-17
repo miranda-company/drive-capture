@@ -3,8 +3,10 @@ import {
   MAX_CANVAS_PIXELS,
   MAX_CANVAS_RGBA_BYTES,
   MAX_CANVAS_WIDTH_PX,
+  MAX_OUTPUT_FILENAME_LENGTH,
   STITCH_GAP_TOLERANCE_PX
 } from "./constants.js";
+import { isAllowedJpegQuality } from "./output-settings.js";
 
 const positiveFinite = (value) => Number.isFinite(value) && value > 0;
 const nonNegativeFinite = (value) => Number.isFinite(value) && value >= 0;
@@ -67,6 +69,19 @@ export function validateFullPageResult(value) {
     positiveInteger(value.encodedBytes) && positiveInteger(value.createdAt) &&
     positiveInteger(value.segmentCount) && Array.isArray(value.placements) &&
     value.placements.length === value.segmentCount && typeof value.horizontalOverflow === "boolean" &&
+    typeof value.filename === "string" && value.filename.endsWith(".jpg") &&
+    Array.from(value.filename).length <= MAX_OUTPUT_FILENAME_LENGTH &&
+    (value.filenameSource === "automatic" || value.filenameSource === "custom") &&
+    value.format === "JPEG" && value.pixelWidth === value.width &&
+    value.pixelHeight === value.height && value.blobSize === value.encodedBytes &&
+    isAllowedJpegQuality(value.jpegQuality) &&
+    value.megapixels === (value.pixelWidth * value.pixelHeight) / 1_000_000 &&
+    value.aspectRatio === value.pixelWidth / value.pixelHeight &&
+    value.validJpegSignature === true &&
+    Number.isFinite(value.scale?.x) && value.scale.x > 0 &&
+    Number.isFinite(value.scale?.y) && value.scale.y > 0 &&
+    value.captureScale?.x === value.scale.x &&
+    value.captureScale?.y === value.scale.y &&
     Number.isFinite(value.stitchingDiagnostics?.totalOverlapPixels) &&
     value.stitchingDiagnostics.totalOverlapPixels >= 0 &&
     Number.isFinite(value.stitchingDiagnostics?.totalNewlyCoveredPixels) &&

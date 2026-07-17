@@ -9,7 +9,7 @@
   <body>
     <main>
       <header>
-        <p class="eyebrow">Phase 2D local stitching</p>
+        <p class="eyebrow">Phase 3A output configuration</p>
         <h1>DriveCapture</h1>
         <p>Capture one visible browser viewport for a temporary preview.</p>
       </header>
@@ -48,6 +48,26 @@
       <section aria-labelledby="full-page-heading">
         <h2 id="full-page-heading">Local full-page capture</h2>
         <p>Capture the current page width, stitch it offscreen, and show one temporary JPEG preview.</p>
+        <label class="field-label" for="output-filename">Filename (optional)</label>
+        <input
+          id="output-filename"
+          type="text"
+          maxlength="280"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Automatic: DriveCapture_&lt;page&gt;_&lt;local-time&gt;.jpg"
+        >
+        <p id="automatic-filename-preview" class="automatic-filename-preview">
+          Automatic name preview unavailable.
+        </p>
+        <p class="option-warning">Leave empty to generate a sanitized page label and local timestamp automatically.</p>
+        <label class="field-label" for="jpeg-quality">JPEG quality</label>
+        <select id="jpeg-quality">
+          <option value="0.8">80% — smaller file</option>
+          <option value="0.9">90% — standard</option>
+          <option value="0.92" selected>92% — high quality (default)</option>
+          <option value="0.95">95% — maximum</option>
+        </select>
         <label class="capture-option">
           <input id="suppress-overlays" type="checkbox" checked>
           <span>Suppress repeated fixed/sticky elements</span>

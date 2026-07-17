@@ -65,7 +65,8 @@ export function validateActiveTabResults(tabs) {
   return Object.freeze({
     id: tab.id,
     windowId: tab.windowId,
-    url: url.href
+    url: url.href,
+    title: typeof tab.title === "string" ? tab.title : ""
   });
 }
 

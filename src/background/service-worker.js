@@ -25,6 +25,7 @@ import { createOffscreenSegmentAdapter } from "./offscreen-segment-adapter.js";
 import { createSegmentedCaptureDiagnosticCoordinator } from "./segmented-capture-diagnostic.js";
 import { createOffscreenStitchAdapter } from "./offscreen-stitch-adapter.js";
 import { createFullPageCaptureCoordinator } from "./full-page-capture.js";
+import { requireJpegQuality } from "../shared/output-settings.js";
 
 const jobState = createJobState();
 const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
@@ -383,12 +384,16 @@ async function handleMessage(message) {
 
     case MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST: {
       if (message.source !== CONTEXTS.POPUP ||
-          typeof message.payload.suppressOverlays !== "boolean") {
+          typeof message.payload.requestedFilename !== "string" ||
+          typeof message.payload.suppressRepeatedOverlays !== "boolean") {
         throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
       }
+      requireJpegQuality(message.payload.jpegQuality);
       const result = await fullPageCapture.run({
         requestId: message.requestId,
-        suppressOverlays: message.payload.suppressOverlays,
+        requestedFilename: message.payload.requestedFilename,
+        jpegQuality: message.payload.jpegQuality,
+        suppressRepeatedOverlays: message.payload.suppressRepeatedOverlays,
         onProgress: (payload) => notifyFullPageCaptureProgress(message.requestId, payload)
       });
       return createMessage({

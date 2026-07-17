@@ -1,4 +1,8 @@
-import { CONTEXTS } from "../shared/constants.js";
+import {
+  CONTEXTS,
+  DEFAULT_JPEG_QUALITY,
+  STORAGE_KEYS
+} from "../shared/constants.js";
 import {
   createApplicationError,
   ERROR_CODES,
@@ -9,10 +13,21 @@ import {
   MESSAGE_TYPES,
   validateMessageEnvelope
 } from "../shared/messages.js";
-import { validateVisibleViewportResult } from "../shared/visible-viewport.js";
+import {
+  validateActiveTabResults,
+  validateVisibleViewportResult
+} from "../shared/visible-viewport.js";
 import { validateScrollDiagnosticResult } from "../shared/page-measurement.js";
 import { validateSegmentedCaptureDiagnostic } from "../shared/segment-capture.js";
 import { validateFullPageResult } from "../shared/stitching.js";
+import {
+  formatAspectRatio,
+  formatByteSize,
+  formatMegapixels,
+  parseJpegQuality,
+  resolveStoredJpegQuality
+} from "../shared/output-settings.js";
+import { createAutomaticOutputFilename } from "../shared/output-filename.js";
 
 const workerStatus = document.querySelector("#worker-status");
 const liveStatus = document.querySelector("#live-status");
@@ -43,6 +58,9 @@ const fullPagePreviewImage = document.querySelector("#full-page-preview-image");
 const fullPageMetadata = document.querySelector("#full-page-metadata");
 const clearFullPageButton = document.querySelector("#clear-full-page-preview");
 const suppressOverlaysOption = document.querySelector("#suppress-overlays");
+const outputFilenameInput = document.querySelector("#output-filename");
+const jpegQualitySelect = document.querySelector("#jpeg-quality");
+const automaticFilenamePreview = document.querySelector("#automatic-filename-preview");
 
 let activeCaptureRequestId = null;
 let pendingPreviewResult = null;
@@ -82,16 +100,24 @@ function setBusy(isBusy) {
   segmentedButton.disabled = isBusy;
   fullPageButton.disabled = isBusy;
   suppressOverlaysOption.disabled = isBusy;
+  outputFilenameInput.disabled = isBusy;
+  jpegQualitySelect.disabled = isBusy;
 }
 
 function showFullPageResult(result) {
   fullPageMetadata.replaceChildren();
-  for (const [label, value] of [
-    ["Format", "JPEG"],
-    ["Bitmap", `${result.width} × ${result.height} px`],
-    ["Encoded size", `${new Intl.NumberFormat().format(result.encodedBytes)} bytes`],
+  for (const [label, value, selectable = false] of [
+    ["Filename", result.filename, true],
+    ["Filename source", result.filenameSource === "custom" ? "Custom" : "Automatic"],
+    ["Format", `${result.format} (${result.mimeType})`],
+    ["JPEG quality", `${Math.round(result.jpegQuality * 100)}%`],
+    ["Bitmap", `${result.pixelWidth} × ${result.pixelHeight} px`],
+    ["Megapixels", formatMegapixels(result.megapixels)],
+    ["Aspect ratio", formatAspectRatio(result.aspectRatio)],
+    ["Blob size", formatByteSize(result.blobSize)],
+    ["JPEG signature", result.validJpegSignature ? "Valid" : "Invalid"],
     ["Segments", String(result.segmentCount)],
-    ["Capture scale", `${result.scale.x.toFixed(4)} × ${result.scale.y.toFixed(4)}`],
+    ["Capture scale", `${result.captureScale.x.toFixed(4)} × ${result.captureScale.y.toFixed(4)}`],
     ["Horizontal overflow", result.horizontalOverflow ? "Not captured beyond viewport width" : "None"],
     ["Capture duration", Number.isFinite(result.durationMs) ? `${Math.round(result.durationMs)} ms` : "—"],
     ["Encoding duration", `${Math.round(result.encodingDurationMs)} ms`],
@@ -114,6 +140,7 @@ function showFullPageResult(result) {
     const detail = document.createElement("dd");
     term.textContent = label;
     detail.textContent = value;
+    if (selectable) detail.classList.add("selectable");
     wrapper.append(term, detail);
     fullPageMetadata.append(wrapper);
   }
@@ -129,6 +156,7 @@ function hideFullPageResult() {
 
 async function clearFullPageResult({ announce = true } = {}) {
   hideFullPageResult();
+  outputFilenameInput.value = "";
   try { await sendWorkerMessage(MESSAGE_TYPES.FULL_PAGE_RESULT_CLEAR_REQUEST); } catch {}
   if (announce) setCaptureState("idle", "Idle — temporary full-page preview cleared.");
 }
@@ -138,11 +166,13 @@ async function runFullPageCapture() {
   setBusy(true);
   cancelFullPageButton.hidden = false;
   setCaptureState("measuring-page", "Measuring page…");
-  const request = createWorkerRequest(MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST, {
-    suppressOverlays: suppressOverlaysOption.checked
-  });
-  activeFullPageRequestId = request.requestId;
   try {
+    const request = createWorkerRequest(MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST, {
+      requestedFilename: outputFilenameInput.value,
+      jpegQuality: parseJpegQuality(jpegQualitySelect.value),
+      suppressRepeatedOverlays: suppressOverlaysOption.checked
+    });
+    activeFullPageRequestId = request.requestId;
     const response = await chrome.runtime.sendMessage(request);
     if (!validateMessageEnvelope(response) || response.requestId !== request.requestId) {
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
@@ -156,6 +186,7 @@ async function runFullPageCapture() {
       throw createApplicationError({ code: ERROR_CODES.INVALID_CAPTURE_RESULT });
     }
     showFullPageResult(response.payload);
+    outputFilenameInput.value = "";
     setCaptureState("full-page-successful", "Full-page capture successful — temporary local preview ready.");
   } catch (error) {
     const cancelled = validateApplicationError(error) && error.code === ERROR_CODES.OPERATION_CANCELLED;
@@ -168,6 +199,42 @@ async function runFullPageCapture() {
     cancelFullPageButton.hidden = true;
     setBusy(false);
     fullPageButton.focus();
+  }
+}
+
+async function refreshAutomaticFilenamePreview() {
+  try {
+    const tab = validateActiveTabResults(await chrome.tabs.query({
+      active: true,
+      currentWindow: true
+    }));
+    const automatic = createAutomaticOutputFilename({
+      title: tab.title,
+      hostname: new URL(tab.url).hostname
+    });
+    automaticFilenamePreview.textContent = `Automatic: ${automatic.filename}`;
+    outputFilenameInput.placeholder = automatic.filename;
+  } catch {
+    automaticFilenamePreview.textContent =
+      "Automatic: DriveCapture_Webpage_<local-timestamp>.jpg";
+  }
+}
+
+async function loadJpegQualityPreference() {
+  let quality = DEFAULT_JPEG_QUALITY;
+  try {
+    const stored = await chrome.storage.sync.get(STORAGE_KEYS.JPEG_QUALITY);
+    quality = resolveStoredJpegQuality(stored[STORAGE_KEYS.JPEG_QUALITY]);
+  } catch {}
+  jpegQualitySelect.value = String(quality);
+}
+
+async function saveJpegQualityPreference() {
+  try {
+    const quality = parseJpegQuality(jpegQualitySelect.value);
+    await chrome.storage.sync.set({ [STORAGE_KEYS.JPEG_QUALITY]: quality });
+  } catch {
+    jpegQualitySelect.value = String(DEFAULT_JPEG_QUALITY);
   }
 }
 
@@ -612,6 +679,7 @@ cancelSegmentedButton.addEventListener("click", cancelSegmentedCaptureDiagnostic
 fullPageButton.addEventListener("click", runFullPageCapture);
 cancelFullPageButton.addEventListener("click", cancelFullPageCapture);
 clearFullPageButton.addEventListener("click", () => clearFullPageResult());
+jpegQualitySelect.addEventListener("change", saveJpegQualityPreference);
 fullPagePreviewImage.addEventListener("error", () => {
   void clearFullPageResult({ announce: false });
   setCaptureState("full-page-failed", "Capture failed — the temporary full-page preview could not be displayed.");
@@ -624,4 +692,6 @@ window.addEventListener("pagehide", () => {
   if (!fullPagePreview.hidden) void clearFullPageResult({ announce: false });
 });
 void checkWorkerConnection();
+void loadJpegQualityPreference();
+void refreshAutomaticFilenamePreview();
 void restoreFullPageResult();

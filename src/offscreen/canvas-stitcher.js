@@ -1,10 +1,14 @@
 import {
-  DEFAULT_JPEG_QUALITY,
   MAX_DIAGNOSTIC_SCROLL_STEPS,
   SEGMENT_SCALE_TOLERANCE,
   STITCH_GAP_TOLERANCE_PX
 } from "../shared/constants.js";
 import { createApplicationError, ERROR_CODES, validateApplicationError } from "../shared/errors.js";
+import { validateResolvedOutputFilename } from "../shared/output-filename.js";
+import {
+  calculateImageMetrics,
+  requireJpegQuality
+} from "../shared/output-settings.js";
 import {
   calculateSegmentGeometry,
   isConsistentSegmentGeometry,
@@ -47,7 +51,7 @@ export function decodeDrawableJpeg(dataUrl, ImageConstructor = globalThis.Image)
 function encodeJpeg(canvas, quality) {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
-      if (!blob || blob.type !== "image/jpeg" || !positiveInteger(blob.size)) {
+      if (!blob || !positiveInteger(blob.size)) {
         reject(createApplicationError({ code: ERROR_CODES.IMAGE_ENCODING_FAILED }));
         return;
       }
@@ -56,12 +60,39 @@ function encodeJpeg(canvas, quality) {
   });
 }
 
+export async function validateJpegBlob(
+  blob,
+  readSlice = (slice) => slice.arrayBuffer()
+) {
+  const acceptedMimeTypes = new Set(["image/jpeg", "image/jpg"]);
+  if (!blob || !positiveInteger(blob.size) ||
+      !acceptedMimeTypes.has(String(blob.type).toLowerCase()) ||
+      typeof blob.slice !== "function" || typeof readSlice !== "function") {
+    throw createApplicationError({ code: ERROR_CODES.JPEG_VALIDATION_FAILED });
+  }
+  try {
+    const start = new Uint8Array(await readSlice(blob.slice(0, 2)));
+    const end = new Uint8Array(await readSlice(blob.slice(blob.size - 2, blob.size)));
+    if (start.length !== 2 || start[0] !== 0xff || start[1] !== 0xd8 ||
+        end.length !== 2 || end[0] !== 0xff || end[1] !== 0xd9) {
+      throw createApplicationError({ code: ERROR_CODES.JPEG_VALIDATION_FAILED });
+    }
+  } catch (error) {
+    if (validateApplicationError(error)) throw error;
+    throw createApplicationError({ code: ERROR_CODES.JPEG_VALIDATION_FAILED });
+  }
+  return Object.freeze({
+    validJpegSignature: true,
+    mimeType: "image/jpeg",
+    blobSize: blob.size
+  });
+}
+
 export function createCanvasStitchSessionManager({
   decode = decodeDrawableJpeg,
   createCanvas = () => document.createElement("canvas"),
   urlApi = globalThis.URL,
   now = Date.now,
-  quality = DEFAULT_JPEG_QUALITY,
   scaleTolerance = SEGMENT_SCALE_TOLERANCE,
   gapTolerance = STITCH_GAP_TOLERANCE_PX,
   limits = {}
@@ -95,6 +126,16 @@ export function createCanvasStitchSessionManager({
   }
 
   function start(payload) {
+    let jpegQuality;
+    let output;
+    try {
+      jpegQuality = requireJpegQuality(payload?.jpegQuality);
+      output = validateResolvedOutputFilename(payload?.filename, payload?.filenameSource);
+    } catch (error) {
+      throw validateApplicationError(error)
+        ? error
+        : createApplicationError({ code: ERROR_CODES.SEGMENT_SESSION_INVALID });
+    }
     if (active || typeof payload?.sessionId !== "string" || !payload.sessionId ||
         !positiveInteger(payload.expectedMaximumSegments) ||
         payload.expectedMaximumSegments > MAX_DIAGNOSTIC_SCROLL_STEPS ||
@@ -107,6 +148,9 @@ export function createCanvasStitchSessionManager({
       sessionId: payload.sessionId,
       expectedMaximumSegments: payload.expectedMaximumSegments,
       documentDimensions: { ...payload.documentDimensions },
+      jpegQuality,
+      filename: output.filename,
+      filenameSource: output.source,
       segmentCount: 0,
       geometry: null,
       canvas: null,
@@ -115,7 +159,11 @@ export function createCanvasStitchSessionManager({
       coveredBottom: 0,
       placements: []
     };
-    return { sessionId: active.sessionId, expectedMaximumSegments: active.expectedMaximumSegments };
+    return {
+      sessionId: active.sessionId,
+      expectedMaximumSegments: active.expectedMaximumSegments,
+      jpegQuality: active.jpegQuality
+    };
   }
 
   async function draw(payload) {
@@ -237,21 +285,36 @@ export function createCanvasStitchSessionManager({
       throw createApplicationError({ code: ERROR_CODES.SEGMENT_GAP_DETECTED });
     }
     const encodingStartedAt = now();
-    const blob = await encodeJpeg(session.canvas, quality);
+    const blob = await encodeJpeg(session.canvas, session.jpegQuality);
+    const jpegValidation = await validateJpegBlob(blob);
     let previewUrl;
     try { previewUrl = urlApi.createObjectURL(blob); }
     catch { throw createApplicationError({ code: ERROR_CODES.PREVIEW_URL_FAILED }); }
     if (typeof previewUrl !== "string" || !previewUrl.startsWith("blob:")) {
       throw createApplicationError({ code: ERROR_CODES.PREVIEW_URL_FAILED });
     }
+    const metrics = calculateImageMetrics(
+      session.allocation.width,
+      session.allocation.height
+    );
     completed = {
       available: true,
       resultId: session.sessionId,
       previewUrl,
       mimeType: "image/jpeg",
+      format: "JPEG",
+      filename: session.filename,
+      filenameSource: session.filenameSource,
       width: session.allocation.width,
       height: session.allocation.height,
+      pixelWidth: session.allocation.width,
+      pixelHeight: session.allocation.height,
       encodedBytes: blob.size,
+      blobSize: blob.size,
+      jpegQuality: session.jpegQuality,
+      megapixels: metrics.megapixels,
+      aspectRatio: metrics.aspectRatio,
+      validJpegSignature: jpegValidation.validJpegSignature,
       createdAt: now(),
       encodingDurationMs: Math.max(0, now() - encodingStartedAt),
       segmentCount: session.segmentCount,
@@ -273,6 +336,7 @@ export function createCanvasStitchSessionManager({
       horizontalOverflow: session.documentDimensions.width >
         session.allocation.width / session.geometry.scale.x,
       scale: { ...session.geometry.scale },
+      captureScale: { ...session.geometry.scale },
       canvas: session.canvas,
       blob
     };

@@ -52,6 +52,31 @@ p {
   line-height: 1.35;
 }
 
+.field-label {
+  display: block;
+  margin-top: 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+input[type="text"],
+select {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid color-mix(in srgb, CanvasText 28%, transparent);
+  border-radius: 0.45rem;
+  background: Canvas;
+  color: CanvasText;
+  font: inherit;
+}
+
+input[type="text"]:focus-visible,
+select:focus-visible {
+  outline: 3px solid #f4a623;
+  outline-offset: 2px;
+}
+
 .capture-option input {
   margin-top: 0.15rem;
 }
@@ -60,6 +85,14 @@ p {
   margin-top: 0.55rem;
   color: GrayText;
   font-size: 0.75rem;
+}
+
+.automatic-filename-preview {
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+  color: GrayText;
+  font-size: 0.75rem;
+  user-select: text;
 }
 
 .eyebrow {
@@ -198,6 +231,12 @@ button:disabled {
   margin: 0;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.metadata dd.selectable {
+  max-width: 230px;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .notice,

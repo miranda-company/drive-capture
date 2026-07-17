@@ -251,30 +251,52 @@ tests/
 
 ## Phase 3: Image processing and filename logic
 
+### Phase 3A checkpoint: filename, JPEG configuration, and output metadata
+
+**Status:** Phase 3A implementation is complete and automated verification passes. Manual Chrome verification remains pending; browser-specific JPEG encoding, filename UI behavior, JPEG-quality persistence, and preview cleanup are not yet fully accepted. Phase 2E real-page overlay-suppression verification also remains pending and is not implied by this checkpoint.
+
+Completed in this checkpoint:
+
+- Automatic `DriveCapture_<page-label>_<local-timestamp>.jpg` names using an injectable clock, local millisecond timestamp, sanitized useful title, hostname fallback, and final `Webpage` fallback.
+- No automatic use of a full URL, path, query, fragment, page contents, or persisted unsanitized active-tab metadata.
+- Optional per-capture custom filename with Unicode normalization, portable sanitation, repeated JPEG-extension removal, punctuation-only rejection, exactly one lowercase `.jpg`, and a 140-code-point complete-name limit.
+- Exact JPEG-quality choices of 0.80, 0.90, 0.92, and 0.95; default 0.92; only the selected quality is stored in `chrome.storage.sync`.
+- Worker-boundary validation before scrolling and offscreen-boundary validation before allocation/encoding.
+- Per-session offscreen JPEG encoding plus minimal SOI/EOI validation using only two-byte Blob slices. The final Blob remains offscreen.
+- Serializable result metadata for filename/source, format/MIME, quality, Blob size, pixel geometry, megapixels, aspect ratio, segment/scale data, signature status, horizontal overflow, overlay restoration, stitching diagnostics, and creation time.
+- Popup controls and human-readable metadata without filename or result persistence.
+- Stable output errors: `INVALID_OUTPUT_FILENAME`, `INVALID_JPEG_QUALITY`, `OUTPUT_METADATA_INVALID`, `JPEG_VALIDATION_FAILED`, and the defined `PAGE_LABEL_UNAVAILABLE` fallback condition.
+
+Still pending:
+
+- Manual Chrome verification of filenames, all quality choices, preference reload, metadata display, failure correction, clearing/replacement, and runtime/privacy behavior.
+- Phase 2E visual and DOM-restoration acceptance on real pages.
+- OAuth, Google Drive, download, upload, external Fetch, cloud persistence, and horizontal capture.
+
 ### Objective
 
 Encode the stitched result as a memory-conscious JPEG Blob and generate deterministic, safe, bounded filenames.
 
 ### Implementation tasks
 
-- Encode with `canvas.toBlob()` using `image/jpeg` and a configurable quality default near `0.92`.
+- Encode with `canvas.toBlob()` using `image/jpeg` and one of the exact supported quality values, defaulting to `0.92`.
 - Reject null Blob results and report canvas or memory failures without silently truncating output.
 - Keep the encoded Blob inside the offscreen document for the later upload phase; never attempt to send it through Chrome runtime messaging.
-- Build filenames from local date, hostname, useful pathname segments, and page title.
-- Remove protocol, query, fragment, control characters, and filesystem-invalid characters.
-- Normalize Unicode, lowercase text, collapse unwanted sequences to one hyphen, and trim separators.
-- Provide fallbacks for missing hostname, path, or title.
-- Enforce a 180-character complete-name limit while preserving `.jpg`.
-- Release canvas, bitmap, and intermediate references after Blob creation.
+- Build filenames from a useful transient tab title, hostname fallback, and local millisecond timestamp.
+- Never incorporate the URL path, query, fragment, or page contents.
+- Remove control characters and filesystem-invalid characters; normalize Unicode, collapse whitespace/hyphens, and trim separators.
+- Provide `Webpage` when neither title nor hostname produces a usable label.
+- Enforce a 140-code-point complete-name limit while preserving exactly one lowercase `.jpg`.
+- Release each decoded bitmap immediately after drawing; retain only the active preview's Canvas and Blob, then release both on clear, replacement, or failed-job cleanup.
 - Add unit tests for sanitization, truncation, Unicode, empty inputs, dates, scale, overlap, and crop calculations.
 
 ### Acceptance criteria
 
 - Output is a non-empty Blob with MIME type `image/jpeg`.
 - Default and custom quality values are validated and applied.
-- Example metadata produces `2026-07-16_example-com_products_camera-product-page.jpg`.
+- Example metadata produces `DriveCapture_camera-product-page_2026-07-16_14-30-12-123.jpg`.
 - Generated names contain no query string, fragment, control character, invalid separator, or lost extension.
-- Every filename is at most 180 characters.
+- Every filename is at most 140 Unicode code points.
 - Unit tests cover edge cases in filename sanitation and capture calculations.
 - Repeated captures do not retain prior canvases, bitmaps, Blobs, or data URLs after job cleanup.
 
@@ -290,14 +312,14 @@ Encode the stitched result as a memory-conscious JPEG Blob and generate determin
 ```text
 src/
   offscreen/
-    jpeg-encoder.js
+    canvas-stitcher.js
   shared/
-    filename.js
-    preferences.js
+    output-filename.js
+    output-settings.js
 tests/
-  filename.test.js
-  jpeg-encoder.test.js
-  capture-math.test.js
+  output-filename.test.js
+  output-settings.test.js
+  canvas-stitcher.test.js
 ```
 
 ## Phase 4: Google OAuth authentication

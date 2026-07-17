@@ -41,6 +41,11 @@ export const ERROR_CODES = Object.freeze({
   OVERLAY_SUPPRESSION_UNSTABLE: "OVERLAY_SUPPRESSION_UNSTABLE",
   OVERLAY_RESTORATION_FAILED: "OVERLAY_RESTORATION_FAILED",
   STITCHING_GEOMETRY_INVALID: "STITCHING_GEOMETRY_INVALID",
+  INVALID_OUTPUT_FILENAME: "INVALID_OUTPUT_FILENAME",
+  INVALID_JPEG_QUALITY: "INVALID_JPEG_QUALITY",
+  OUTPUT_METADATA_INVALID: "OUTPUT_METADATA_INVALID",
+  JPEG_VALIDATION_FAILED: "JPEG_VALIDATION_FAILED",
+  PAGE_LABEL_UNAVAILABLE: "PAGE_LABEL_UNAVAILABLE",
   INTERNAL_ERROR: "INTERNAL_ERROR"
 });
 
@@ -85,6 +90,11 @@ const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.OVERLAY_SUPPRESSION_UNSTABLE]: "Suppressing repeated overlays changed the page geometry unexpectedly.",
   [ERROR_CODES.OVERLAY_RESTORATION_FAILED]: "DriveCapture could not restore every modified page overlay.",
   [ERROR_CODES.STITCHING_GEOMETRY_INVALID]: "The captured segment geometry is incompatible with the stitched image.",
+  [ERROR_CODES.INVALID_OUTPUT_FILENAME]: "Enter a filename containing at least one letter or number.",
+  [ERROR_CODES.INVALID_JPEG_QUALITY]: "Select a supported JPEG quality.",
+  [ERROR_CODES.OUTPUT_METADATA_INVALID]: "The generated image metadata is invalid.",
+  [ERROR_CODES.JPEG_VALIDATION_FAILED]: "The generated file is not a valid JPEG.",
+  [ERROR_CODES.PAGE_LABEL_UNAVAILABLE]: "The page label is unavailable.",
   [ERROR_CODES.INTERNAL_ERROR]: "DriveCapture encountered an unexpected error."
 });
 
