@@ -9,7 +9,7 @@
   <body>
     <main>
       <header>
-        <p class="eyebrow">Phase 2C diagnostics</p>
+        <p class="eyebrow">Phase 2D local stitching</p>
         <h1>DriveCapture</h1>
         <p>Capture one visible browser viewport for a temporary preview.</p>
       </header>
@@ -45,7 +45,21 @@
         <button id="cancel-segmented-capture" type="button" class="secondary-button" hidden>Cancel segmented capture</button>
       </section>
 
-      <p class="notice">Full-page capture and Google Drive upload are not implemented. The JPEG preview is temporary and remains only in popup memory.</p>
+      <section aria-labelledby="full-page-heading">
+        <h2 id="full-page-heading">Local full-page capture</h2>
+        <p>Capture the current page width, stitch it offscreen, and show one temporary JPEG preview.</p>
+        <button id="full-page-capture" type="button">Capture full page locally</button>
+        <button id="cancel-full-page-capture" type="button" class="secondary-button" hidden>Cancel full-page capture</button>
+      </section>
+
+      <p class="notice">Google Drive upload is not implemented. Local previews are temporary and are cleared when the extension reloads.</p>
+
+      <section id="full-page-preview" class="preview" aria-labelledby="full-page-preview-heading" hidden>
+        <h2 id="full-page-preview-heading">Temporary full-page JPEG</h2>
+        <img id="full-page-preview-image" alt="Stitched full-page capture preview">
+        <dl id="full-page-metadata" class="metadata"></dl>
+        <button id="clear-full-page-preview" type="button" class="secondary-button">Clear full-page preview</button>
+      </section>
 
       <section id="preview" class="preview" aria-labelledby="preview-heading" hidden>
         <h2 id="preview-heading">Temporary JPEG preview</h2>

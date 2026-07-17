@@ -1,9 +1,9 @@
 import { CONTEXTS, OFFSCREEN_DOCUMENT_PATH } from "../shared/constants.js";
 import { createApplicationError, ERROR_CODES, validateApplicationError } from "../shared/errors.js";
 import { createMessage, MESSAGE_TYPES, validateMessageEnvelope } from "../shared/messages.js";
-import { validateSegmentAcknowledgement } from "../shared/segment-capture.js";
+import { validateFullPageResult } from "../shared/stitching.js";
 
-export function createOffscreenSegmentAdapter(chromeApi = globalThis.chrome) {
+export function createOffscreenStitchAdapter(chromeApi = globalThis.chrome) {
   async function contexts() {
     return chromeApi.runtime.getContexts({
       contextTypes: ["OFFSCREEN_DOCUMENT"],
@@ -29,29 +29,15 @@ export function createOffscreenSegmentAdapter(chromeApi = globalThis.chrome) {
 
   async function closeDocument() {
     if ((await contexts()).length === 0) return false;
-    try {
-      const result = await send(
-        MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_GET_REQUEST,
-        MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_GET_RESPONSE,
-        {}
-      );
-      if (result.available === true) return false;
-    } catch {
-      // Do not destroy a possible preview when result ownership cannot be inspected.
-      return false;
-    }
     await chromeApi.offscreen.closeDocument();
     return true;
   }
 
-  async function send(type, expectedType, payload) {
-    let value;
+  async function send(type, expectedType, payload = {}) {
     const request = createMessage({
-      type,
-      source: CONTEXTS.SERVICE_WORKER,
-      target: CONTEXTS.OFFSCREEN,
-      payload
+      type, source: CONTEXTS.SERVICE_WORKER, target: CONTEXTS.OFFSCREEN, payload
     });
+    let value;
     try {
       value = await chromeApi.runtime.sendMessage(request);
     } catch {
@@ -69,31 +55,21 @@ export function createOffscreenSegmentAdapter(chromeApi = globalThis.chrome) {
   return Object.freeze({
     ensureDocument,
     closeDocument,
-    startSession: (payload) => send(
-      MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_START_REQUEST,
-      MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_START_RESPONSE,
-      payload
-    ),
-    async processSegment(payload) {
-      const acknowledgement = await send(
-        MESSAGE_TYPES.OFFSCREEN_SEGMENT_PROCESS_REQUEST,
-        MESSAGE_TYPES.OFFSCREEN_SEGMENT_PROCESS_RESPONSE,
-        payload
-      );
-      if (!validateSegmentAcknowledgement(acknowledgement)) {
-        throw createApplicationError({ code: ERROR_CODES.OFFSCREEN_SESSION_FAILED });
-      }
-      return acknowledgement;
+    startSession: (payload) => send(MESSAGE_TYPES.OFFSCREEN_STITCH_SESSION_START_REQUEST,
+      MESSAGE_TYPES.OFFSCREEN_STITCH_SESSION_START_RESPONSE, payload),
+    drawSegment: (payload) => send(MESSAGE_TYPES.OFFSCREEN_STITCH_DRAW_REQUEST,
+      MESSAGE_TYPES.OFFSCREEN_STITCH_DRAW_RESPONSE, payload),
+    finishSession: async (payload) => {
+      const result = await send(MESSAGE_TYPES.OFFSCREEN_STITCH_FINISH_REQUEST,
+        MESSAGE_TYPES.OFFSCREEN_STITCH_FINISH_RESPONSE, payload);
+      if (!validateFullPageResult(result)) throw createApplicationError({ code: ERROR_CODES.OFFSCREEN_SESSION_FAILED });
+      return result;
     },
-    finishSession: (payload) => send(
-      MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_FINISH_REQUEST,
-      MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_FINISH_RESPONSE,
-      payload
-    ),
-    abortSession: (payload) => send(
-      MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_ABORT_REQUEST,
-      MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_ABORT_RESPONSE,
-      payload
-    )
+    abortSession: (payload) => send(MESSAGE_TYPES.OFFSCREEN_STITCH_ABORT_REQUEST,
+      MESSAGE_TYPES.OFFSCREEN_STITCH_ABORT_RESPONSE, payload),
+    getResult: () => send(MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_GET_REQUEST,
+      MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_GET_RESPONSE),
+    clearResult: () => send(MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_CLEAR_REQUEST,
+      MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_CLEAR_RESPONSE)
   });
 }

@@ -26,6 +26,15 @@ export const ERROR_CODES = Object.freeze({
   SEGMENT_SESSION_INVALID: "SEGMENT_SESSION_INVALID",
   SEGMENT_LIMIT_EXCEEDED: "SEGMENT_LIMIT_EXCEEDED",
   OFFSCREEN_SESSION_FAILED: "OFFSCREEN_SESSION_FAILED",
+  CANVAS_ALLOCATION_FAILED: "CANVAS_ALLOCATION_FAILED",
+  CANVAS_CONTEXT_UNAVAILABLE: "CANVAS_CONTEXT_UNAVAILABLE",
+  CANVAS_LIMIT_EXCEEDED: "CANVAS_LIMIT_EXCEEDED",
+  SEGMENT_DRAW_FAILED: "SEGMENT_DRAW_FAILED",
+  SEGMENT_GAP_DETECTED: "SEGMENT_GAP_DETECTED",
+  IMAGE_ENCODING_FAILED: "IMAGE_ENCODING_FAILED",
+  PREVIEW_URL_FAILED: "PREVIEW_URL_FAILED",
+  FULL_PAGE_RESULT_UNAVAILABLE: "FULL_PAGE_RESULT_UNAVAILABLE",
+  FULL_PAGE_RESULT_CLEANUP_FAILED: "FULL_PAGE_RESULT_CLEANUP_FAILED",
   INTERNAL_ERROR: "INTERNAL_ERROR"
 });
 
@@ -39,9 +48,9 @@ const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.SCROLL_PLAN_TOO_LARGE]: "This page requires too many diagnostic scroll steps.",
   [ERROR_CODES.SCROLL_UNSTABLE]: "The page did not settle after scrolling.",
   [ERROR_CODES.VIEWPORT_CHANGED]: "The browser viewport changed during the diagnostic.",
-  [ERROR_CODES.DYNAMIC_PAGE_UNSTABLE]: "The page kept changing size during the diagnostic.",
+  [ERROR_CODES.DYNAMIC_PAGE_UNSTABLE]: "The page kept changing size during the operation.",
   [ERROR_CODES.RESTORATION_FAILED]: "DriveCapture could not restore the original page position.",
-  [ERROR_CODES.OPERATION_CANCELLED]: "The scrolling diagnostic was cancelled.",
+  [ERROR_CODES.OPERATION_CANCELLED]: "The operation was cancelled.",
   [ERROR_CODES.PAGE_SCRIPT_UNAVAILABLE]: "DriveCapture could not communicate with this page.",
   [ERROR_CODES.IMAGE_TOO_LARGE]: "The page is too large to process safely.",
   [ERROR_CODES.AUTHENTICATION_REQUIRED]: "Google authorization is required.",
@@ -55,6 +64,15 @@ const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.SEGMENT_SESSION_INVALID]: "The offscreen segment session is invalid or no longer active.",
   [ERROR_CODES.SEGMENT_LIMIT_EXCEEDED]: "The segmented capture exceeded its declared limit.",
   [ERROR_CODES.OFFSCREEN_SESSION_FAILED]: "The offscreen segment session failed.",
+  [ERROR_CODES.CANVAS_ALLOCATION_FAILED]: "The full-page canvas could not be allocated safely.",
+  [ERROR_CODES.CANVAS_CONTEXT_UNAVAILABLE]: "The offscreen canvas drawing context is unavailable.",
+  [ERROR_CODES.CANVAS_LIMIT_EXCEEDED]: "The page exceeds the configured Canvas safety limits.",
+  [ERROR_CODES.SEGMENT_DRAW_FAILED]: "A captured segment could not be drawn onto the full-page image.",
+  [ERROR_CODES.SEGMENT_GAP_DETECTED]: "The captured segments would leave a gap in the full-page image.",
+  [ERROR_CODES.IMAGE_ENCODING_FAILED]: "The stitched image could not be encoded as JPEG.",
+  [ERROR_CODES.PREVIEW_URL_FAILED]: "A temporary preview URL could not be created.",
+  [ERROR_CODES.FULL_PAGE_RESULT_UNAVAILABLE]: "No temporary full-page result is available.",
+  [ERROR_CODES.FULL_PAGE_RESULT_CLEANUP_FAILED]: "The temporary full-page result could not be cleared safely.",
   [ERROR_CODES.INTERNAL_ERROR]: "DriveCapture encountered an unexpected error."
 });
 

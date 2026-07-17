@@ -23,6 +23,8 @@ import { createPageScriptAdapter } from "./page-script-adapter.js";
 import { createPageScrollDiagnosticCoordinator } from "./page-scroll-diagnostic.js";
 import { createOffscreenSegmentAdapter } from "./offscreen-segment-adapter.js";
 import { createSegmentedCaptureDiagnosticCoordinator } from "./segmented-capture-diagnostic.js";
+import { createOffscreenStitchAdapter } from "./offscreen-stitch-adapter.js";
+import { createFullPageCaptureCoordinator } from "./full-page-capture.js";
 
 const jobState = createJobState();
 const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
@@ -38,6 +40,13 @@ const segmentedCaptureDiagnostic = createSegmentedCaptureDiagnosticCoordinator({
   tabAdapter: createChromeTabAdapter(),
   pageAdapter: createPageScriptAdapter(),
   offscreenAdapter: createOffscreenSegmentAdapter(),
+  jobState
+});
+const offscreenStitchAdapter = createOffscreenStitchAdapter();
+const fullPageCapture = createFullPageCaptureCoordinator({
+  tabAdapter: createChromeTabAdapter(),
+  pageAdapter: createPageScriptAdapter(),
+  offscreenAdapter: offscreenStitchAdapter,
   jobState
 });
 
@@ -58,6 +67,8 @@ function createErrorResponse(request, error) {
           ? MESSAGE_TYPES.SCROLL_DIAGNOSTIC_ERROR
           : request?.type === MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_REQUEST
             ? MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_ERROR
+          : request?.type === MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST
+            ? MESSAGE_TYPES.FULL_PAGE_CAPTURE_ERROR
         : MESSAGE_TYPES.APPLICATION_ERROR_RESPONSE,
     source: CONTEXTS.SERVICE_WORKER,
     target: getResponseTarget(request),
@@ -99,6 +110,16 @@ function notifyScrollProgress(requestId, payload) {
 function notifySegmentedCaptureProgress(requestId, payload) {
   void chrome.runtime.sendMessage(createMessage({
     type: MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_PROGRESS,
+    source: CONTEXTS.SERVICE_WORKER,
+    target: CONTEXTS.POPUP,
+    requestId,
+    payload
+  })).catch(() => {});
+}
+
+function notifyFullPageCaptureProgress(requestId, payload) {
+  void chrome.runtime.sendMessage(createMessage({
+    type: MESSAGE_TYPES.FULL_PAGE_CAPTURE_PROGRESS,
     source: CONTEXTS.SERVICE_WORKER,
     target: CONTEXTS.POPUP,
     requestId,
@@ -184,6 +205,13 @@ async function pingOffscreenDocument(requestId) {
 async function closeOffscreenDocument() {
   const existingContexts = await getOffscreenContexts();
   if (existingContexts.length === 0) {
+    return false;
+  }
+
+  try {
+    if ((await offscreenStitchAdapter.getResult()).available === true) return false;
+  } catch {
+    // Do not destroy a possible preview when result ownership cannot be inspected.
     return false;
   }
 
@@ -352,6 +380,63 @@ async function handleMessage(message) {
         requestId: message.requestId,
         payload: { accepted: segmentedCaptureDiagnostic.cancel(message.payload.diagnosticRequestId) }
       });
+
+    case MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP) throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      const result = await fullPageCapture.run({
+        requestId: message.requestId,
+        onProgress: (payload) => notifyFullPageCaptureProgress(message.requestId, payload)
+      });
+      return createMessage({
+        type: MESSAGE_TYPES.FULL_PAGE_CAPTURE_SUCCESS,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload: result
+      });
+    }
+
+    case MESSAGE_TYPES.FULL_PAGE_CAPTURE_CANCEL_REQUEST:
+      if (message.source !== CONTEXTS.POPUP || typeof message.payload.captureRequestId !== "string") {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+      return createMessage({
+        type: MESSAGE_TYPES.FULL_PAGE_CAPTURE_CANCEL_RESPONSE,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload: { accepted: fullPageCapture.cancel(message.payload.captureRequestId) }
+      });
+
+    case MESSAGE_TYPES.FULL_PAGE_RESULT_GET_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP) throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      let payload;
+      try { payload = await offscreenStitchAdapter.getResult(); }
+      catch { payload = { available: false }; }
+      return createMessage({
+        type: MESSAGE_TYPES.FULL_PAGE_RESULT_GET_RESPONSE,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload
+      });
+    }
+
+    case MESSAGE_TYPES.FULL_PAGE_RESULT_CLEAR_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP) throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      let payload = { cleared: false };
+      try {
+        payload = await offscreenStitchAdapter.clearResult();
+        await offscreenStitchAdapter.closeDocument();
+      } catch {}
+      return createMessage({
+        type: MESSAGE_TYPES.FULL_PAGE_RESULT_CLEARED,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload
+      });
+    }
 
     default:
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });

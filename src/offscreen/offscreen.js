@@ -2,8 +2,10 @@ import { CONTEXTS, CURRENT_EXTENSION_PHASE } from "../shared/constants.js";
 import { createApplicationError, ERROR_CODES, serializeUnknownError } from "../shared/errors.js";
 import { createMessage, MESSAGE_TYPES, validateMessageEnvelope } from "../shared/messages.js";
 import { createSegmentSessionManager } from "./segment-decoder.js";
+import { createCanvasStitchSessionManager } from "./canvas-stitcher.js";
 
 const sessions = createSegmentSessionManager();
+const stitching = createCanvasStitchSessionManager();
 
 function response(message, type, payload) {
   return createMessage({
@@ -25,6 +27,18 @@ async function handleAsync(message) {
       return response(message, MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_FINISH_RESPONSE, sessions.finish(message.payload));
     case MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_ABORT_REQUEST:
       return response(message, MESSAGE_TYPES.OFFSCREEN_SEGMENT_SESSION_ABORT_RESPONSE, sessions.abort(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_STITCH_SESSION_START_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_SESSION_START_RESPONSE, stitching.start(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_STITCH_DRAW_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_DRAW_RESPONSE, await stitching.draw(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_STITCH_FINISH_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_FINISH_RESPONSE, await stitching.finish(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_STITCH_ABORT_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_ABORT_RESPONSE, stitching.abort(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_GET_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_GET_RESPONSE, stitching.getResult());
+    case MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_CLEAR_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_CLEAR_RESPONSE, stitching.clearResult());
     default:
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
   }

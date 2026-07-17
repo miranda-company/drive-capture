@@ -139,8 +139,28 @@ Completed in this checkpoint:
 
 Still pending for full Phase 2:
 
-- Canvas allocation, pixel drawing, segment placement, overlap removal, final cropping, final JPEG encoding, and sticky/fixed-element handling.
+- Sticky/fixed-element handling and its reversible style restoration.
 - Manual Chrome verification across long/short pages, zoom and high-DPI configurations, cancellation, resize, navigation, dynamic pages, storage/network inspection, and regression workflows.
+
+### Phase 2D checkpoint: incremental Canvas stitching and local preview
+
+**Status:** Implemented with automated tests. Local Canvas stitching and popup loading of the offscreen-created Blob URL were manually verified in Chrome on 2026-07-17. Broader visual, cleanup, zoom, cancellation, failure-path, and regression scenarios remain pending, and full Phase 2 remains incomplete.
+
+Completed in this checkpoint:
+
+- A separate **Capture full page locally** production workflow that preserves all Phase 1–2C controls and uses the shared session-backed lock.
+- One-at-a-time capture, offscreen decode/draw acknowledgement, current data-URL release, and at least 550 ms between capture calls.
+- One offscreen DOM Canvas sized from the first bitmap's measured scale, with current-visible-width scope and horizontal-overflow metadata.
+- Placement from actual scroll coordinates, overlap overwrite, gap rejection, final-document-boundary cropping, and small serializable placement records.
+- Pre-allocation Canvas limits of 16,384 × 32,767 pixels, 100,000,000 total pixels, and 400,000,000 estimated RGBA bytes.
+- Offscreen JPEG Blob encoding at quality 0.92, one temporary Blob URL/result, explicit get/clear/replacement lifecycle, URL revocation, and Canvas reset.
+- Cleanup coverage for cancellation, capture/draw/decode/geometry/gap/limit/encoding failures, post-allocation dynamic growth, navigation, resize, restoration, messaging, and lock release.
+- No screenshot storage, upload, download, OAuth operation, external request, horizontal scrolling, or fixed/sticky style modification.
+
+Still pending:
+
+- Manual Chrome verification of long/short pages, multiple zoom/high-DPI settings, cancellation/failure paths, memory cleanup, regressions, and offscreen Blob-URL rendering in the popup.
+- Reversible fixed/sticky-element handling (Phase 2E), followed by authentication and Google Drive upload phases.
 
 ### Objective
 

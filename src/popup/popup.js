@@ -12,6 +12,7 @@ import {
 import { validateVisibleViewportResult } from "../shared/visible-viewport.js";
 import { validateScrollDiagnosticResult } from "../shared/page-measurement.js";
 import { validateSegmentedCaptureDiagnostic } from "../shared/segment-capture.js";
+import { validateFullPageResult } from "../shared/stitching.js";
 
 const workerStatus = document.querySelector("#worker-status");
 const liveStatus = document.querySelector("#live-status");
@@ -35,12 +36,19 @@ const cancelSegmentedButton = document.querySelector("#cancel-segmented-capture"
 const segmentedResults = document.querySelector("#segmented-results");
 const segmentedMetadata = document.querySelector("#segmented-metadata");
 const segmentedSteps = document.querySelector("#segmented-steps");
+const fullPageButton = document.querySelector("#full-page-capture");
+const cancelFullPageButton = document.querySelector("#cancel-full-page-capture");
+const fullPagePreview = document.querySelector("#full-page-preview");
+const fullPagePreviewImage = document.querySelector("#full-page-preview-image");
+const fullPageMetadata = document.querySelector("#full-page-metadata");
+const clearFullPageButton = document.querySelector("#clear-full-page-preview");
 
 let activeCaptureRequestId = null;
 let pendingPreviewResult = null;
 let previewDataUrl = null;
 let activeDiagnosticRequestId = null;
 let activeSegmentedRequestId = null;
+let activeFullPageRequestId = null;
 
 function userSafeError(response, fallback) {
   const error = response?.payload?.error;
@@ -71,6 +79,105 @@ function setBusy(isBusy) {
   scaffoldCheckButton.disabled = isBusy;
   diagnosticButton.disabled = isBusy;
   segmentedButton.disabled = isBusy;
+  fullPageButton.disabled = isBusy;
+}
+
+function showFullPageResult(result) {
+  fullPageMetadata.replaceChildren();
+  for (const [label, value] of [
+    ["Format", "JPEG"],
+    ["Bitmap", `${result.width} × ${result.height} px`],
+    ["Encoded size", `${new Intl.NumberFormat().format(result.encodedBytes)} bytes`],
+    ["Segments", String(result.segmentCount)],
+    ["Capture scale", `${result.scale.x.toFixed(4)} × ${result.scale.y.toFixed(4)}`],
+    ["Horizontal overflow", result.horizontalOverflow ? "Not captured beyond viewport width" : "None"],
+    ["Capture duration", Number.isFinite(result.durationMs) ? `${Math.round(result.durationMs)} ms` : "—"],
+    ["Encoding duration", `${Math.round(result.encodingDurationMs)} ms`],
+    ["Restored scroll", result.restoration
+      ? `${result.restoration.actual.x}, ${result.restoration.actual.y} (${result.restoration.withinTolerance ? "restored" : "not restored"})`
+      : "—"],
+    ["Created", new Date(result.createdAt).toLocaleString()]
+  ]) {
+    const wrapper = document.createElement("div");
+    const term = document.createElement("dt");
+    const detail = document.createElement("dd");
+    term.textContent = label;
+    detail.textContent = value;
+    wrapper.append(term, detail);
+    fullPageMetadata.append(wrapper);
+  }
+  fullPagePreviewImage.src = result.previewUrl;
+  fullPagePreview.hidden = false;
+}
+
+function hideFullPageResult() {
+  fullPagePreviewImage.removeAttribute("src");
+  fullPageMetadata.replaceChildren();
+  fullPagePreview.hidden = true;
+}
+
+async function clearFullPageResult({ announce = true } = {}) {
+  hideFullPageResult();
+  try { await sendWorkerMessage(MESSAGE_TYPES.FULL_PAGE_RESULT_CLEAR_REQUEST); } catch {}
+  if (announce) setCaptureState("idle", "Idle — temporary full-page preview cleared.");
+}
+
+async function runFullPageCapture() {
+  hideFullPageResult();
+  setBusy(true);
+  cancelFullPageButton.hidden = false;
+  setCaptureState("measuring-page", "Measuring page…");
+  const request = createWorkerRequest(MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST);
+  activeFullPageRequestId = request.requestId;
+  try {
+    const response = await chrome.runtime.sendMessage(request);
+    if (!validateMessageEnvelope(response) || response.requestId !== request.requestId) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type === MESSAGE_TYPES.FULL_PAGE_CAPTURE_ERROR) {
+      throw validateApplicationError(response.payload.error)
+        ? response.payload.error : createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type !== MESSAGE_TYPES.FULL_PAGE_CAPTURE_SUCCESS ||
+        !validateFullPageResult(response.payload)) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_CAPTURE_RESULT });
+    }
+    showFullPageResult(response.payload);
+    setCaptureState("full-page-successful", "Full-page capture successful — temporary local preview ready.");
+  } catch (error) {
+    const cancelled = validateApplicationError(error) && error.code === ERROR_CODES.OPERATION_CANCELLED;
+    setCaptureState(cancelled ? "full-page-cancelled" : "full-page-failed",
+      `${cancelled ? "Capture cancelled" : "Capture failed"} — ${
+        validateApplicationError(error) ? error.message : "Unexpected internal failure."
+      }`);
+  } finally {
+    activeFullPageRequestId = null;
+    cancelFullPageButton.hidden = true;
+    setBusy(false);
+    fullPageButton.focus();
+  }
+}
+
+async function cancelFullPageCapture() {
+  if (!activeFullPageRequestId) return;
+  cancelFullPageButton.disabled = true;
+  setCaptureState("restoring-page", "Restoring page…");
+  const request = createMessage({
+    type: MESSAGE_TYPES.FULL_PAGE_CAPTURE_CANCEL_REQUEST,
+    source: CONTEXTS.POPUP,
+    target: CONTEXTS.SERVICE_WORKER,
+    payload: { captureRequestId: activeFullPageRequestId }
+  });
+  try { await chrome.runtime.sendMessage(request); } catch {}
+  cancelFullPageButton.disabled = false;
+}
+
+async function restoreFullPageResult() {
+  try {
+    const response = await sendWorkerMessage(MESSAGE_TYPES.FULL_PAGE_RESULT_GET_REQUEST);
+    if (response?.type === MESSAGE_TYPES.FULL_PAGE_RESULT_GET_RESPONSE &&
+        validateFullPageResult(response.payload)) showFullPageResult(response.payload);
+  } catch {}
 }
 
 function clearDiagnosticResults() {
@@ -461,6 +568,21 @@ chrome.runtime.onMessage.addListener((message) => {
     if (progress.state === "restoring-page") setCaptureState("restoring-page", "Restoring page…");
   }
 
+  if (validateMessageEnvelope(message) && message.type === MESSAGE_TYPES.FULL_PAGE_CAPTURE_PROGRESS &&
+      message.source === CONTEXTS.SERVICE_WORKER && message.target === CONTEXTS.POPUP &&
+      message.requestId === activeFullPageRequestId) {
+    const progress = message.payload;
+    if (progress.state === "measuring-page") setCaptureState("measuring-page", "Measuring page…");
+    if (progress.state === "preparing-offscreen") setCaptureState("preparing-offscreen", "Preparing offscreen processor…");
+    if (progress.state === "preparing-canvas") setCaptureState("preparing-canvas", "Preparing canvas…");
+    if (progress.state === "scrolling") setCaptureState("scrolling", `Scrolling — Step ${progress.step} of ${progress.total}`);
+    if (progress.state === "waiting-to-capture") setCaptureState("waiting-to-capture", "Waiting to capture…");
+    if (progress.state === "capturing-segment") setCaptureState("capturing-segment", `Capturing segment ${progress.step} of ${progress.total}…`);
+    if (progress.state === "drawing-segment") setCaptureState("drawing-segment", `Drawing segment ${progress.step} of ${progress.total}…`);
+    if (progress.state === "encoding-image") setCaptureState("encoding-image", "Encoding temporary JPEG…");
+    if (progress.state === "restoring-page") setCaptureState("restoring-page", "Restoring page…");
+  }
+
   return false;
 });
 
@@ -471,10 +593,15 @@ diagnosticButton.addEventListener("click", runScrollDiagnostic);
 cancelDiagnosticButton.addEventListener("click", cancelScrollDiagnostic);
 segmentedButton.addEventListener("click", runSegmentedCaptureDiagnostic);
 cancelSegmentedButton.addEventListener("click", cancelSegmentedCaptureDiagnostic);
+fullPageButton.addEventListener("click", runFullPageCapture);
+cancelFullPageButton.addEventListener("click", cancelFullPageCapture);
+clearFullPageButton.addEventListener("click", () => clearFullPageResult());
 previewImage.addEventListener("load", showLoadedPreview);
 previewImage.addEventListener("error", () => captureFailure("The JPEG preview could not be displayed."));
 window.addEventListener("pagehide", () => {
   activeCaptureRequestId = null;
   releasePreview({ announce: false, restoreFocus: false });
+  if (!fullPagePreview.hidden) void clearFullPageResult({ announce: false });
 });
 void checkWorkerConnection();
+void restoreFullPageResult();
