@@ -20,6 +20,12 @@ export const ERROR_CODES = Object.freeze({
   UPLOAD_FAILED: "UPLOAD_FAILED",
   INVALID_MESSAGE: "INVALID_MESSAGE",
   OFFSCREEN_UNAVAILABLE: "OFFSCREEN_UNAVAILABLE",
+  SEGMENT_DECODE_FAILED: "SEGMENT_DECODE_FAILED",
+  SEGMENT_GEOMETRY_CHANGED: "SEGMENT_GEOMETRY_CHANGED",
+  SEGMENT_OUT_OF_ORDER: "SEGMENT_OUT_OF_ORDER",
+  SEGMENT_SESSION_INVALID: "SEGMENT_SESSION_INVALID",
+  SEGMENT_LIMIT_EXCEEDED: "SEGMENT_LIMIT_EXCEEDED",
+  OFFSCREEN_SESSION_FAILED: "OFFSCREEN_SESSION_FAILED",
   INTERNAL_ERROR: "INTERNAL_ERROR"
 });
 
@@ -43,6 +49,12 @@ const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.UPLOAD_FAILED]: "The file could not be uploaded.",
   [ERROR_CODES.INVALID_MESSAGE]: "DriveCapture received an invalid internal message.",
   [ERROR_CODES.OFFSCREEN_UNAVAILABLE]: "The image-processing document is unavailable.",
+  [ERROR_CODES.SEGMENT_DECODE_FAILED]: "A captured JPEG segment could not be decoded.",
+  [ERROR_CODES.SEGMENT_GEOMETRY_CHANGED]: "The captured viewport geometry changed during the diagnostic.",
+  [ERROR_CODES.SEGMENT_OUT_OF_ORDER]: "A captured segment arrived out of order.",
+  [ERROR_CODES.SEGMENT_SESSION_INVALID]: "The offscreen segment session is invalid or no longer active.",
+  [ERROR_CODES.SEGMENT_LIMIT_EXCEEDED]: "The segmented capture exceeded its declared limit.",
+  [ERROR_CODES.OFFSCREEN_SESSION_FAILED]: "The offscreen segment session failed.",
   [ERROR_CODES.INTERNAL_ERROR]: "DriveCapture encountered an unexpected error."
 });
 

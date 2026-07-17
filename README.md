@@ -2,7 +2,17 @@
 
 DriveCapture is a planned Manifest V3 Chrome extension that will capture a high-resolution, full-page image of the active HTTP or HTTPS page and upload the resulting JPEG to a dedicated Google Drive folder created and managed by the extension.
 
-Phases 2A and 2B are implemented on top of the Phase 1 shell. DriveCapture can preview one visible viewport and can separately run a page measurement and controlled-scrolling diagnostic. The diagnostic captures no screenshots: it visits a bounded plan, records actual positions, and restores the starting scroll position. Full-page image capture, stitching, authentication, Drive folder management, and upload remain unimplemented.
+Phases 2A, 2B, and 2C are implemented on top of the Phase 1 shell. DriveCapture can preview one visible viewport, run a measurement and scrolling diagnostic, and separately run an incremental segmented-capture diagnostic. Phase 2C captures and decodes each planned JPEG viewport one at a time, reports metadata, and releases it before the next capture. It does not produce a stitched or final image. Authentication, Drive folder management, and upload remain unimplemented.
+
+## Current Phase 2C diagnostic
+
+- **Test segmented capture** measures the page, creates the bounded Phase 2B scroll plan, and captures exactly one JPEG per visited position.
+- Calls to `chrome.tabs.captureVisibleTab()` are spaced by at least 550 ms and are never automatically retried.
+- Each data URL is sent immediately to an explicit offscreen session, decoded with a temporary `Image`, acknowledged with bitmap dimensions and measured X/Y scale, and released before the next capture begins.
+- The offscreen session retains only its ID, limits, processed count, first bitmap dimensions, and expected scale. It rejects malformed, duplicate, out-of-order, excessive, completed-session, decode, and geometry-change requests.
+- The popup displays segment metadata only: scroll positions, sizes, capture intervals, bitmap geometry, scale, totals, restoration, and duration. It never receives or displays the segment screenshots.
+- Success, failure, cancellation, dynamic growth, navigation, resize, and messaging failures share cleanup that aborts or finishes the offscreen session, restores the page, releases the session lock, and closes the offscreen document.
+- No Canvas is created, no pixels are stitched, no final JPEG or Blob is generated, and no screenshot is stored, fetched, uploaded, or downloaded.
 
 ## Current Phase 2B diagnostic
 
@@ -62,15 +72,15 @@ The popup will prevent overlapping capture jobs. Interactive OAuth will only beg
 
 ## Architecture
 
-DriveCapture separates privileged coordination from page interaction and DOM-based image processing. Phase 2A implements only the single-viewport path described below; the remaining architecture is the target MVP design.
+DriveCapture separates privileged coordination from page interaction and DOM-based image processing. Phase 2C now implements incremental capture and decoding, while stitching and upload remain target MVP work.
 
 ### Popup
 
-In Phase 2A, the popup starts capture from an explicit user action and displays idle, page-validation, viewport-capture, success, and error states. It validates the returned JPEG result before assigning it to a responsive image and releases its temporary data URL on clear or popup close. Future authentication and upload states are not implemented.
+The popup preserves the Phase 2A preview and Phase 2B scrolling controls and adds a separate Phase 2C segmented-capture control with cancellation, progress, and metadata-only results. It does not retain Phase 2C data URLs or decoded images. Future authentication and upload states are not implemented.
 
 ### Manifest V3 service worker
 
-In Phase 2A, the service worker coordinates one capture job at a time, queries the active tab, rejects unsupported pages, calls `chrome.tabs.captureVisibleTab()` once, validates the JPEG data URL, and returns it temporarily to the popup. It does not store or log the image.
+The service worker coordinates all workflows through the shared session-backed lock. For Phase 2C it measures and scrolls the page, enforces capture pacing, holds only the current segment data URL, waits for its offscreen acknowledgement, releases it, and retains only small serializable diagnostic metadata.
 
 In the future full-page pipeline, the worker will inject the page capture module, coordinate incremental viewport processing in the offscreen document, obtain OAuth tokens, and send short-lived tokens plus JSON metadata to the offscreen document. It will never receive the final stitched JPEG Blob.
 
@@ -86,7 +96,9 @@ The MVP will inject this module only after the action is invoked. It will not re
 
 ### Offscreen document
 
-The current offscreen document remains a Phase 1 communication shell and is not used by Phase 2A capture. In the future full-page pipeline, it will own the image and upload lifecycle. For every viewport, it will receive one data URL, decode and draw it immediately, return a JSON acknowledgement, and release that data URL and decoded bitmap before the next capture begins. It will determine the real X/Y capture scale from the first bitmap and CSS viewport, stitch and crop segments, and encode an `image/jpeg` Blob.
+The offscreen document now supports explicit Phase 2C decoding sessions. For every viewport, it receives one validated data URL, decodes it with a temporary image representation, calculates real X/Y scale from bitmap pixels divided by the CSS viewport, returns a JSON acknowledgement, clears the image source, and releases all segment references. It does not draw pixels or create a Canvas or Blob in this phase.
+
+In the future full-page pipeline, the offscreen document will extend this incremental lifecycle to stitch and crop segments and encode an `image/jpeg` Blob.
 
 The Blob stays inside the offscreen document. When stitching is complete, the service worker supplies a short-lived OAuth token and JSON metadata. The offscreen document uses Fetch directly for multipart or resumable Drive upload, then returns only JSON-serializable Drive metadata such as `id`, `name`, `webViewLink`, and `parents`. It releases the Blob, canvas, token reference, and upload state after success or failure. Access tokens and resumable-session URLs are never stored or logged.
 
@@ -228,6 +240,18 @@ On 2026-07-17, the following Phase 2B scenarios were separately exercised in Chr
 | Concurrency | Not separately verified | Shared-lock rejection is covered automatically, but all three requested Chrome concurrency combinations have not been independently observed. |
 | Privacy and runtime inspection | Not separately verified | Static and automated checks cover storage and logging boundaries; the complete Chrome network, service-worker console, and session-storage inspection remains pending. |
 
+## Phase 2C manual Chrome verification
+
+Real segmented capture has not yet been claimed as manually verified. After reloading the extension and target page in Chrome:
+
+1. On a long static HTTPS page, start from the middle and run **Test segmented capture**.
+2. Confirm every position is captured and acknowledged sequentially, metadata appears without screenshot previews, intervals are at least 550 ms, bitmap dimensions and scale are plausible, and the original position is restored.
+3. Repeat on a page no taller than the viewport, at another browser zoom, and on a Retina/high-DPI display.
+4. Cancel during throttling and after an acknowledged segment; then verify restoration and that another job starts without a stale lock.
+5. Repeat with resize, navigation, and the Infinite Scroll demo; confirm bounded structured failures and cleanup.
+6. Re-run the visible-viewport preview and original scrolling diagnostic.
+7. Inspect service-worker/offscreen consoles, network activity, and extension storage to confirm there are no errors, external requests, stored screenshots, or stale session jobs.
+
 ## Future implementation testing plan
 
 Once the relevant roadmap phase is implemented:
@@ -249,6 +273,7 @@ Once the relevant roadmap phase is implemented:
 - `activeTab` is used instead of persistent website access.
 - In Phase 2A, screenshot bytes travel only from Chrome to the service worker and directly to the open popup for temporary preview; no network request is made.
 - The Phase 2A data URL is removed from popup state and the image `src` when the preview is cleared or the popup closes.
+- In Phase 2C, the worker and offscreen document hold only the current segment; its data URL and decoded image representation are released before the next capture, while the popup receives metadata only.
 - Screenshot data is never stored in `chrome.storage`, IndexedDB, Cache Storage, the filesystem, or logs.
 - In the future production flow, screenshot bytes will be sent only to Google Drive.
 - The extension requests only `drive.file`, not full Drive access.

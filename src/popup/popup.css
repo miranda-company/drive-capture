@@ -55,6 +55,7 @@ p {
 section[aria-labelledby="checks-heading"],
 section[aria-labelledby="capture-heading"],
 section[aria-labelledby="diagnostic-heading"],
+section[aria-labelledby="segmented-heading"],
 .preview {
   padding: 0.85rem;
   border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
@@ -190,7 +191,16 @@ button:disabled {
   border-left: 4px solid #18864b;
 }
 
+.live-status[data-state="segmented-successful"] {
+  border-left: 4px solid #18864b;
+}
+
 .live-status[data-state="capture-failed"] {
+  border-left: 4px solid #c53232;
+}
+
+.live-status[data-state="segmented-failed"],
+.live-status[data-state="segmented-cancelled"] {
   border-left: 4px solid #c53232;
 }
 

@@ -121,7 +121,26 @@ Completed in this checkpoint:
 
 Still pending:
 
-- Screenshot capture during the sequence, incremental offscreen image processing, high-DPI placement, overlap/cropping, Canvas stitching, and sticky/fixed-element modification.
+- High-DPI placement, overlap/cropping, Canvas stitching, final encoding, and sticky/fixed-element modification.
+
+### Phase 2C checkpoint: incremental viewport capture and offscreen decoding
+
+**Status:** Implemented with automated tests. Manual Chrome acceptance remains pending, so real segmented-capture success is not yet claimed and full Phase 2 is not complete.
+
+Completed in this checkpoint:
+
+- A separate **Test segmented capture** workflow preserving the Phase 1, 2A, and 2B controls.
+- One JPEG capture per bounded scroll position with at least 550 ms between actual `captureVisibleTab()` calls and no automatic retries.
+- Explicit offscreen start, process, finish, and abort session messages with sequential-index and maximum-segment enforcement.
+- Immediate offscreen JPEG decoding, bitmap validation, first-segment scale measurement, later-segment geometry checks, JSON acknowledgements, and image/data-URL release before the next capture.
+- Metadata-only popup progress and results with no screenshot preview or retained screenshot state.
+- Cancellation during page waits and capture throttling, plus cleanup coverage for capture, decode, geometry, navigation, dynamic-page, restoration, messaging, and shared-lock failures.
+- Stable segment/session error codes and bounded small metadata only; no screenshot storage or external request.
+
+Still pending for full Phase 2:
+
+- Canvas allocation, pixel drawing, segment placement, overlap removal, final cropping, final JPEG encoding, and sticky/fixed-element handling.
+- Manual Chrome verification across long/short pages, zoom and high-DPI configurations, cancellation, resize, navigation, dynamic pages, storage/network inspection, and regression workflows.
 
 ### Objective
 

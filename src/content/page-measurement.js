@@ -14,9 +14,12 @@
     SCROLL_RESULT: "PAGE_SCROLL_STEP_RESULT",
     RESTORE: "PAGE_RESTORE_REQUEST",
     RESTORE_RESULT: "PAGE_RESTORE_RESULT",
+    CANCEL: "PAGE_CONTROLLER_CANCEL_REQUEST",
+    CANCEL_RESULT: "PAGE_CONTROLLER_CANCEL_RESPONSE",
     ERROR: "APPLICATION_ERROR_RESPONSE"
   };
   let state = null;
+  const cancelledRequests = new Set();
 
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const hashHref = () => {
@@ -54,20 +57,35 @@
       throw appError("VIEWPORT_CHANGED", "The browser viewport changed during the diagnostic.");
     }
   };
-  async function settle(timeoutMs, tolerance) {
+  const assertNotCancelled = (requestId) => {
+    if (cancelledRequests.has(requestId)) {
+      throw appError("OPERATION_CANCELLED", "The scrolling diagnostic was cancelled.");
+    }
+  };
+  async function cancellableDelay(ms, requestId) {
+    let remaining = ms;
+    while (remaining > 0) {
+      assertNotCancelled(requestId);
+      const interval = Math.min(50, remaining);
+      await delay(interval);
+      remaining -= interval;
+    }
+    assertNotCancelled(requestId);
+  }
+  async function settle(timeoutMs, tolerance, requestId) {
     const start = performance.now();
     let previousX = scrollX;
     let previousY = scrollY;
     let stableChecks = 0;
     while (performance.now() - start < timeoutMs) {
-      await delay(50);
+      await cancellableDelay(50, requestId);
       const stable = Math.abs(scrollX - previousX) <= tolerance && Math.abs(scrollY - previousY) <= tolerance;
       stableChecks = stable ? stableChecks + 1 : 0;
       if (stableChecks >= 2) return { settled: true, timedOut: false };
       previousX = scrollX;
       previousY = scrollY;
     }
-    await delay(50);
+    await cancellableDelay(50, requestId);
     if (Math.abs(scrollX - previousX) <= tolerance && Math.abs(scrollY - previousY) <= tolerance) {
       return { settled: true, timedOut: true };
     }
@@ -79,6 +97,7 @@
 
   async function handle(message) {
     if (message.type === TYPES.INIT) {
+      cancelledRequests.delete(message.requestId);
       const measurement = rawMeasurement();
       state = {
         root: document.documentElement,
@@ -89,6 +108,10 @@
       };
       return envelope(message, TYPES.INIT_RESULT, { identity: state.identity, hostname: location.hostname });
     }
+    if (message.type === TYPES.CANCEL) {
+      cancelledRequests.add(message.requestId);
+      return envelope(message, TYPES.CANCEL_RESULT, { accepted: true });
+    }
     if (!state) throw appError("PAGE_SCRIPT_UNAVAILABLE", "DriveCapture could not communicate with this page.");
     if (message.type === TYPES.MEASURE) {
       assertIdentity(message.payload.identity);
@@ -97,8 +120,8 @@
     if (message.type === TYPES.SCROLL) {
       assertIdentity(message.payload.identity);
       window.scrollTo({ left: state.original.x, top: message.payload.targetY, behavior: "instant" });
-      const settled = await settle(message.payload.settleTimeoutMs, message.payload.tolerance);
-      await delay(message.payload.renderDelayMs);
+      const settled = await settle(message.payload.settleTimeoutMs, message.payload.tolerance, message.requestId);
+      await cancellableDelay(message.payload.renderDelayMs, message.requestId);
       assertIdentity(message.payload.identity);
       const measurement = rawMeasurement();
       const actualY = measurement.scrollY;
@@ -115,8 +138,9 @@
     if (message.type === TYPES.RESTORE) {
       assertIdentity(message.payload.identity, false);
       window.scrollTo({ left: state.original.x, top: state.original.y, behavior: "instant" });
-      const settled = await settle(message.payload.settleTimeoutMs, message.payload.tolerance);
+      const settled = await settle(message.payload.settleTimeoutMs, message.payload.tolerance, `${message.requestId}-restore`);
       const actual = { x: Math.max(0, scrollX), y: Math.max(0, scrollY) };
+      cancelledRequests.delete(message.requestId);
       return envelope(message, TYPES.RESTORE_RESULT, {
         identity: state.identity, actual, settled: settled.settled,
         withinTolerance: Math.abs(actual.x - state.original.x) <= message.payload.tolerance && Math.abs(actual.y - state.original.y) <= message.payload.tolerance

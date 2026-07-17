@@ -9,7 +9,7 @@
   <body>
     <main>
       <header>
-        <p class="eyebrow">Phase 2A preview</p>
+        <p class="eyebrow">Phase 2C diagnostics</p>
         <h1>DriveCapture</h1>
         <p>Capture one visible browser viewport for a temporary preview.</p>
       </header>
@@ -36,6 +36,13 @@
         <p>Measure the page, visit a bounded scroll plan, and restore the starting position.</p>
         <button id="scroll-diagnostic" type="button">Test full-page scrolling</button>
         <button id="cancel-diagnostic" type="button" class="secondary-button" hidden>Cancel diagnostic</button>
+      </section>
+
+      <section aria-labelledby="segmented-heading">
+        <h2 id="segmented-heading">Segmented capture diagnostic</h2>
+        <p>Capture and decode each planned viewport sequentially without producing a stitched image.</p>
+        <button id="segmented-capture" type="button">Test segmented capture</button>
+        <button id="cancel-segmented-capture" type="button" class="secondary-button" hidden>Cancel segmented capture</button>
       </section>
 
       <p class="notice">Full-page capture and Google Drive upload are not implemented. The JPEG preview is temporary and remains only in popup memory.</p>
@@ -75,6 +82,16 @@
           <caption>Requested and actual vertical positions</caption>
           <thead><tr><th scope="col">Step</th><th scope="col">Requested Y</th><th scope="col">Actual Y</th><th scope="col">Clamped</th></tr></thead>
           <tbody id="diagnostic-steps"></tbody>
+        </table>
+      </section>
+
+      <section id="segmented-results" class="diagnostic-results" aria-labelledby="segmented-results-heading" hidden>
+        <h2 id="segmented-results-heading">Segmented capture results</h2>
+        <dl id="segmented-metadata" class="metadata"></dl>
+        <table>
+          <caption>Captured and acknowledged segment metadata</caption>
+          <thead><tr><th scope="col">Segment</th><th scope="col">Requested Y</th><th scope="col">Actual Y</th><th scope="col">Bytes</th><th scope="col">Interval</th></tr></thead>
+          <tbody id="segmented-steps"></tbody>
         </table>
       </section>
 

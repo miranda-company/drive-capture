@@ -17,6 +17,8 @@ export const SCROLL_POSITION_TOLERANCE_PX = 2;
 export const MAX_VIEWPORT_CHANGE_PX = 2;
 export const DIAGNOSTIC_RENDER_DELAY_MS = 250;
 export const PAGE_MESSAGE_TIMEOUT_MS = 4000;
+export const SEGMENT_SCALE_TOLERANCE = 0.01;
+export const CANCELLATION_POLL_INTERVAL_MS = 50;
 export const MULTIPART_UPLOAD_THRESHOLD_BYTES = 5 * 1024 * 1024;
 export const MANAGED_DRIVE_FOLDER_NAME = "DriveCapture";
 
@@ -27,5 +29,5 @@ export const STORAGE_KEYS = Object.freeze({
   CAPTURE_DELAY_MS: "captureDelayMs"
 });
 
-export const CURRENT_EXTENSION_PHASE = "phase-2b-scroll-diagnostic";
+export const CURRENT_EXTENSION_PHASE = "phase-2c-segmented-capture-diagnostic";
 export const OFFSCREEN_DOCUMENT_PATH = "src/offscreen/offscreen.html";

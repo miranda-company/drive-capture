@@ -90,3 +90,25 @@ test("allows same-document history URL changes without reporting PAGE_CHANGED", 
   assert.equal(measured.type, "PAGE_MEASUREMENT_RESPONSE");
   assert.equal(measured.payload.rawMeasurement.documentElementScrollHeight, 2400);
 });
+
+test("interrupts settle or render waits after a page-controller cancellation", async () => {
+  const { send } = createControllerHarness();
+  const initialized = await send(
+    request("PAGE_CONTROLLER_INITIALIZE_REQUEST", { maxViewportChange: 2 })
+  );
+  const scrolling = send(request("PAGE_SCROLL_STEP_REQUEST", {
+    identity: initialized.payload.identity,
+    targetY: 800,
+    previousDocumentHeight: 2400,
+    settleTimeoutMs: 1000,
+    tolerance: 2,
+    renderDelayMs: 250
+  }));
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const cancelled = await send(request("PAGE_CONTROLLER_CANCEL_REQUEST"));
+  const outcome = await scrolling;
+
+  assert.equal(cancelled.type, "PAGE_CONTROLLER_CANCEL_RESPONSE");
+  assert.equal(outcome.payload.error.code, "OPERATION_CANCELLED");
+});

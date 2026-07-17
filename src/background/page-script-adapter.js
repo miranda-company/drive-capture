@@ -46,6 +46,7 @@ export function createPageScriptAdapter({ chromeApi = globalThis.chrome, timeout
     initialize: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_CONTROLLER_INITIALIZE_REQUEST, MESSAGE_TYPES.PAGE_CONTROLLER_INITIALIZE_RESPONSE, requestId, payload),
     measure: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_MEASUREMENT_REQUEST, MESSAGE_TYPES.PAGE_MEASUREMENT_RESPONSE, requestId, payload),
     scrollStep: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_SCROLL_STEP_REQUEST, MESSAGE_TYPES.PAGE_SCROLL_STEP_RESULT, requestId, payload),
+    cancel: (tabId, requestId, payload = {}) => send(tabId, MESSAGE_TYPES.PAGE_CONTROLLER_CANCEL_REQUEST, MESSAGE_TYPES.PAGE_CONTROLLER_CANCEL_RESPONSE, requestId, payload),
     restore: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_RESTORE_REQUEST, MESSAGE_TYPES.PAGE_RESTORE_RESULT, requestId, payload)
   });
 }

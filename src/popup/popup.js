@@ -11,6 +11,7 @@ import {
 } from "../shared/messages.js";
 import { validateVisibleViewportResult } from "../shared/visible-viewport.js";
 import { validateScrollDiagnosticResult } from "../shared/page-measurement.js";
+import { validateSegmentedCaptureDiagnostic } from "../shared/segment-capture.js";
 
 const workerStatus = document.querySelector("#worker-status");
 const liveStatus = document.querySelector("#live-status");
@@ -29,11 +30,17 @@ const cancelDiagnosticButton = document.querySelector("#cancel-diagnostic");
 const diagnosticResults = document.querySelector("#diagnostic-results");
 const diagnosticMetadata = document.querySelector("#diagnostic-metadata");
 const diagnosticSteps = document.querySelector("#diagnostic-steps");
+const segmentedButton = document.querySelector("#segmented-capture");
+const cancelSegmentedButton = document.querySelector("#cancel-segmented-capture");
+const segmentedResults = document.querySelector("#segmented-results");
+const segmentedMetadata = document.querySelector("#segmented-metadata");
+const segmentedSteps = document.querySelector("#segmented-steps");
 
 let activeCaptureRequestId = null;
 let pendingPreviewResult = null;
 let previewDataUrl = null;
 let activeDiagnosticRequestId = null;
+let activeSegmentedRequestId = null;
 
 function userSafeError(response, fallback) {
   const error = response?.payload?.error;
@@ -63,6 +70,7 @@ function setBusy(isBusy) {
   captureButton.disabled = isBusy;
   scaffoldCheckButton.disabled = isBusy;
   diagnosticButton.disabled = isBusy;
+  segmentedButton.disabled = isBusy;
 }
 
 function clearDiagnosticResults() {
@@ -79,6 +87,53 @@ function addMetadata(label, value) {
   detail.textContent = value;
   wrapper.append(term, detail);
   diagnosticMetadata.append(wrapper);
+}
+
+function addSegmentedMetadata(label, value) {
+  const wrapper = document.createElement("div");
+  const term = document.createElement("dt");
+  const detail = document.createElement("dd");
+  term.textContent = label;
+  detail.textContent = value;
+  wrapper.append(term, detail);
+  segmentedMetadata.append(wrapper);
+}
+
+function clearSegmentedResults() {
+  segmentedResults.hidden = true;
+  segmentedMetadata.replaceChildren();
+  segmentedSteps.replaceChildren();
+}
+
+function showSegmentedResult(result) {
+  clearSegmentedResults();
+  const first = result.segments[0];
+  addSegmentedMetadata("CSS viewport", `${result.measurement.viewport.width} × ${result.measurement.viewport.height}`);
+  addSegmentedMetadata("Document", `${result.measurement.document.width} × ${result.measurement.document.height}`);
+  addSegmentedMetadata("Planned segments", String(result.plannedSegmentCount));
+  addSegmentedMetadata("Captured segments", String(result.capturedSegmentCount));
+  addSegmentedMetadata("Acknowledged segments", String(result.acknowledgedSegmentCount));
+  addSegmentedMetadata("First bitmap", `${first.bitmap.width} × ${first.bitmap.height}`);
+  addSegmentedMetadata("Capture scale", `${first.scale.x.toFixed(4)} × ${first.scale.y.toFixed(4)}`);
+  addSegmentedMetadata("Total estimated bytes", new Intl.NumberFormat().format(result.totalEstimatedBytes));
+  addSegmentedMetadata("Restored scroll", `${result.restoration.actual.x}, ${result.restoration.actual.y}`);
+  addSegmentedMetadata("Duration", `${Math.round(result.durationMs)} ms`);
+  result.segments.forEach((segment) => {
+    const row = document.createElement("tr");
+    for (const value of [
+      segment.segmentIndex + 1,
+      segment.requestedScrollY,
+      segment.actualScrollY,
+      segment.estimatedBytes,
+      segment.captureIntervalMs === null ? "—" : `${segment.captureIntervalMs} ms`
+    ]) {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      row.append(cell);
+    }
+    segmentedSteps.append(row);
+  });
+  segmentedResults.hidden = false;
 }
 
 function showDiagnosticResult(result) {
@@ -293,6 +348,59 @@ async function cancelScrollDiagnostic() {
   cancelDiagnosticButton.disabled = false;
 }
 
+async function runSegmentedCaptureDiagnostic() {
+  clearSegmentedResults();
+  setBusy(true);
+  cancelSegmentedButton.hidden = false;
+  setCaptureState("measuring-page", "Measuring page…");
+  const request = createWorkerRequest(MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_REQUEST);
+  activeSegmentedRequestId = request.requestId;
+  try {
+    const response = await chrome.runtime.sendMessage(request);
+    if (!validateMessageEnvelope(response) || response.requestId !== request.requestId) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type === MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_ERROR) {
+      throw validateApplicationError(response.payload.error)
+        ? response.payload.error
+        : createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type !== MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_SUCCESS ||
+        !validateSegmentedCaptureDiagnostic(response.payload)) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    showSegmentedResult(response.payload);
+    setCaptureState("segmented-successful", "Diagnostic successful — every segment was acknowledged and released.");
+  } catch (error) {
+    const cancelled = validateApplicationError(error) && error.code === ERROR_CODES.OPERATION_CANCELLED;
+    setCaptureState(
+      cancelled ? "segmented-cancelled" : "segmented-failed",
+      `${cancelled ? "Diagnostic cancelled" : "Diagnostic failed"} — ${
+        validateApplicationError(error) ? error.message : "Unexpected internal failure."
+      }`
+    );
+  } finally {
+    activeSegmentedRequestId = null;
+    cancelSegmentedButton.hidden = true;
+    setBusy(false);
+    segmentedButton.focus();
+  }
+}
+
+async function cancelSegmentedCaptureDiagnostic() {
+  if (!activeSegmentedRequestId) return;
+  cancelSegmentedButton.disabled = true;
+  setCaptureState("restoring-page", "Restoring page…");
+  const request = createMessage({
+    type: MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_CANCEL_REQUEST,
+    source: CONTEXTS.POPUP,
+    target: CONTEXTS.SERVICE_WORKER,
+    payload: { diagnosticRequestId: activeSegmentedRequestId }
+  });
+  try { await chrome.runtime.sendMessage(request); } catch {}
+  cancelSegmentedButton.disabled = false;
+}
+
 function showLoadedPreview() {
   if (!pendingPreviewResult || !previewDataUrl) {
     return;
@@ -339,6 +447,20 @@ chrome.runtime.onMessage.addListener((message) => {
     if (progress.state === "restoring-page") setCaptureState("restoring-page", "Restoring page…");
   }
 
+  if (validateMessageEnvelope(message) &&
+      message.type === MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_PROGRESS &&
+      message.source === CONTEXTS.SERVICE_WORKER && message.target === CONTEXTS.POPUP &&
+      message.requestId === activeSegmentedRequestId) {
+    const progress = message.payload;
+    if (progress.state === "measuring-page") setCaptureState("measuring-page", "Measuring page…");
+    if (progress.state === "preparing-offscreen") setCaptureState("preparing-offscreen", "Preparing offscreen processor…");
+    if (progress.state === "scrolling") setCaptureState("scrolling", `Scrolling — Step ${progress.step} of ${progress.total}`);
+    if (progress.state === "waiting-to-capture") setCaptureState("waiting-to-capture", "Waiting to capture…");
+    if (progress.state === "capturing-segment") setCaptureState("capturing-segment", `Capturing segment ${progress.step} of ${progress.total}…`);
+    if (progress.state === "decoding-segment") setCaptureState("decoding-segment", `Decoding segment ${progress.step} of ${progress.total}…`);
+    if (progress.state === "restoring-page") setCaptureState("restoring-page", "Restoring page…");
+  }
+
   return false;
 });
 
@@ -347,6 +469,8 @@ captureButton.addEventListener("click", captureVisibleViewport);
 clearPreviewButton.addEventListener("click", () => releasePreview());
 diagnosticButton.addEventListener("click", runScrollDiagnostic);
 cancelDiagnosticButton.addEventListener("click", cancelScrollDiagnostic);
+segmentedButton.addEventListener("click", runSegmentedCaptureDiagnostic);
+cancelSegmentedButton.addEventListener("click", cancelSegmentedCaptureDiagnostic);
 previewImage.addEventListener("load", showLoadedPreview);
 previewImage.addEventListener("error", () => captureFailure("The JPEG preview could not be displayed."));
 window.addEventListener("pagehide", () => {

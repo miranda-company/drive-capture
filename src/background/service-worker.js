@@ -21,6 +21,8 @@ import { createChromeTabAdapter } from "./tab-adapter.js";
 import { createVisibleViewportCaptureCoordinator } from "./visible-viewport-capture.js";
 import { createPageScriptAdapter } from "./page-script-adapter.js";
 import { createPageScrollDiagnosticCoordinator } from "./page-scroll-diagnostic.js";
+import { createOffscreenSegmentAdapter } from "./offscreen-segment-adapter.js";
+import { createSegmentedCaptureDiagnosticCoordinator } from "./segmented-capture-diagnostic.js";
 
 const jobState = createJobState();
 const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
@@ -30,6 +32,12 @@ const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
 const pageScrollDiagnostic = createPageScrollDiagnosticCoordinator({
   tabAdapter: createChromeTabAdapter(),
   pageAdapter: createPageScriptAdapter(),
+  jobState
+});
+const segmentedCaptureDiagnostic = createSegmentedCaptureDiagnosticCoordinator({
+  tabAdapter: createChromeTabAdapter(),
+  pageAdapter: createPageScriptAdapter(),
+  offscreenAdapter: createOffscreenSegmentAdapter(),
   jobState
 });
 
@@ -48,6 +56,8 @@ function createErrorResponse(request, error) {
         ? MESSAGE_TYPES.VISIBLE_VIEWPORT_CAPTURE_ERROR
         : request?.type === MESSAGE_TYPES.SCROLL_DIAGNOSTIC_REQUEST
           ? MESSAGE_TYPES.SCROLL_DIAGNOSTIC_ERROR
+          : request?.type === MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_REQUEST
+            ? MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_ERROR
         : MESSAGE_TYPES.APPLICATION_ERROR_RESPONSE,
     source: CONTEXTS.SERVICE_WORKER,
     target: getResponseTarget(request),
@@ -79,6 +89,16 @@ function notifyVisibleViewportCaptureStarted(requestId) {
 function notifyScrollProgress(requestId, payload) {
   void chrome.runtime.sendMessage(createMessage({
     type: MESSAGE_TYPES.PAGE_SCROLL_PROGRESS,
+    source: CONTEXTS.SERVICE_WORKER,
+    target: CONTEXTS.POPUP,
+    requestId,
+    payload
+  })).catch(() => {});
+}
+
+function notifySegmentedCaptureProgress(requestId, payload) {
+  void chrome.runtime.sendMessage(createMessage({
+    type: MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_PROGRESS,
     source: CONTEXTS.SERVICE_WORKER,
     target: CONTEXTS.POPUP,
     requestId,
@@ -304,6 +324,33 @@ async function handleMessage(message) {
         target: CONTEXTS.POPUP,
         requestId: message.requestId,
         payload: { accepted: pageScrollDiagnostic.cancel(message.payload.diagnosticRequestId) }
+      });
+
+    case MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP) throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      const diagnostic = await segmentedCaptureDiagnostic.run({
+        requestId: message.requestId,
+        onProgress: (payload) => notifySegmentedCaptureProgress(message.requestId, payload)
+      });
+      return createMessage({
+        type: MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_SUCCESS,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload: diagnostic
+      });
+    }
+
+    case MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_CANCEL_REQUEST:
+      if (message.source !== CONTEXTS.POPUP || typeof message.payload.diagnosticRequestId !== "string") {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+      return createMessage({
+        type: MESSAGE_TYPES.SEGMENTED_CAPTURE_DIAGNOSTIC_CANCEL_RESPONSE,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload: { accepted: segmentedCaptureDiagnostic.cancel(message.payload.diagnosticRequestId) }
       });
 
     default:
