@@ -46,3 +46,23 @@ test("supports non-integer and Retina capture scales", () => {
   const retina = calculateCanvasAllocation({ bitmapWidth: 200, documentHeight: 101, scaleY: 2 });
   assert.equal(retina.height, 202);
 });
+
+test("clamps a browser-clamped final target at non-integer scale to Canvas boundaries", () => {
+  const placement = calculateSegmentPlacement({
+    actualScrollY: 61,
+    bitmapWidth: 125,
+    bitmapHeight: 63,
+    scaleY: 1.25,
+    canvasWidth: 125,
+    canvasHeight: 126,
+    documentHeight: 101,
+    coveredBottom: 100
+  });
+  assert.equal(placement.destination.y, 76);
+  assert.equal(placement.source.height, 50);
+  assert.equal(placement.destination.height, 50);
+  assert.equal(placement.coveredBottom, 126);
+  assert.equal(placement.overlap, 24);
+  assert.equal(placement.overwrittenRowCount, 24);
+  assert.equal(placement.gap, 0);
+});

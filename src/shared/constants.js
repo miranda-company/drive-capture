@@ -23,6 +23,10 @@ export const MAX_CANVAS_HEIGHT_PX = 32767;
 export const MAX_CANVAS_PIXELS = 100_000_000;
 export const MAX_CANVAS_RGBA_BYTES = 400_000_000;
 export const STITCH_GAP_TOLERANCE_PX = 4;
+export const MAX_OVERLAY_CANDIDATES = 200;
+export const OVERLAY_GEOMETRY_TOLERANCE_PX = 2;
+export const OVERLAY_SETTLE_DELAY_MS = 50;
+export const OVERLAY_ATTRIBUTE_NAME = "data-drivecapture-element-id";
 export const CANCELLATION_POLL_INTERVAL_MS = 50;
 export const MULTIPART_UPLOAD_THRESHOLD_BYTES = 5 * 1024 * 1024;
 export const MANAGED_DRIVE_FOLDER_NAME = "DriveCapture";
@@ -34,5 +38,5 @@ export const STORAGE_KEYS = Object.freeze({
   CAPTURE_DELAY_MS: "captureDelayMs"
 });
 
-export const CURRENT_EXTENSION_PHASE = "phase-2d-local-full-page-stitching";
+export const CURRENT_EXTENSION_PHASE = "phase-2e-overlay-suppression";
 export const OFFSCREEN_DOCUMENT_PATH = "src/offscreen/offscreen.html";

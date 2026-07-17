@@ -48,6 +48,11 @@
       <section aria-labelledby="full-page-heading">
         <h2 id="full-page-heading">Local full-page capture</h2>
         <p>Capture the current page width, stitch it offscreen, and show one temporary JPEG preview.</p>
+        <label class="capture-option">
+          <input id="suppress-overlays" type="checkbox" checked>
+          <span>Suppress repeated fixed/sticky elements</span>
+        </label>
+        <p class="option-warning">Heuristic: global fixed overlays are hidden after the first segment. In-flow sticky content is tracked conservatively and may still repeat.</p>
         <button id="full-page-capture" type="button">Capture full page locally</button>
         <button id="cancel-full-page-capture" type="button" class="secondary-button" hidden>Cancel full-page capture</button>
       </section>
@@ -57,6 +62,7 @@
       <section id="full-page-preview" class="preview" aria-labelledby="full-page-preview-heading" hidden>
         <h2 id="full-page-preview-heading">Temporary full-page JPEG</h2>
         <img id="full-page-preview-image" alt="Stitched full-page capture preview">
+        <p class="option-warning">Fixed/sticky handling is heuristic and may leave repeats or hide an overlay that the page treats unusually.</p>
         <dl id="full-page-metadata" class="metadata"></dl>
         <button id="clear-full-page-preview" type="button" class="secondary-button">Clear full-page preview</button>
       </section>

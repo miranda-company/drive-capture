@@ -56,6 +56,13 @@ test("draws incrementally, releases every decoded image, and retains only the fi
   assert.equal(result.previewUrl, "blob:preview-1");
   assert.equal(result.segmentCount, 3);
   assert.equal(result.placements[2].overlap, 60);
+  assert.equal(result.placements[2].previousBottom, 200);
+  assert.equal(result.placements[2].sourceCropHeight, 100);
+  assert.deepEqual(result.stitchingDiagnostics, {
+    totalOverlapPixels: 60,
+    totalNewlyCoveredPixels: 240,
+    maximumGapPixels: 0
+  });
   assert.deepEqual(manager.getResult(), result);
 });
 

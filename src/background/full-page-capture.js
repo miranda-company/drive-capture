@@ -3,8 +3,11 @@ import {
   DIAGNOSTIC_RENDER_DELAY_MS,
   MAX_DIAGNOSTIC_PLAN_REVISIONS,
   MAX_DIAGNOSTIC_SCROLL_STEPS,
+  MAX_OVERLAY_CANDIDATES,
   MAX_VIEWPORT_CHANGE_PX,
   MINIMUM_CAPTURE_INTERVAL_MS,
+  OVERLAY_GEOMETRY_TOLERANCE_PX,
+  OVERLAY_SETTLE_DELAY_MS,
   SCROLL_POSITION_TOLERANCE_PX,
   SCROLL_SETTLE_TIMEOUT_MS,
   VISIBLE_VIEWPORT_JPEG_QUALITY
@@ -14,6 +17,10 @@ import { createPageMeasurement, validateDocumentIdentity, validateRestorationRes
 import { createRequestId } from "../shared/messages.js";
 import { createVerticalScrollPlan } from "../shared/scroll-plan.js";
 import { validateFullPageResult } from "../shared/stitching.js";
+import {
+  validateOverlayPrepareResult,
+  validateOverlayRestoration
+} from "../shared/overlay-handling.js";
 import { estimateBase64DataUrlBytes, validateActiveTabResults } from "../shared/visible-viewport.js";
 
 const structured = (error, code = ERROR_CODES.INTERNAL_ERROR) =>
@@ -57,7 +64,14 @@ export function createFullPageCaptureCoordinator({
     checkCancelled(requestId);
   }
 
-  async function run({ requestId, onProgress = () => undefined }) {
+  async function run({
+    requestId,
+    suppressOverlays = true,
+    onProgress = () => undefined
+  }) {
+    if (typeof suppressOverlays !== "boolean") {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
     const jobId = createJobId();
     const startedAt = now();
     const operation = { tabId: null };
@@ -73,6 +87,15 @@ export function createFullPageCaptureCoordinator({
     let result;
     let operationError;
     let currentDataUrl = null;
+    let overlayHandlingStarted = false;
+    let overlaySummary = { detected: 0, suppressed: 0 };
+    let overlayRestoration = {
+      detected: 0,
+      suppressed: 0,
+      restored: 0,
+      restorationSucceeded: true,
+      applicable: true
+    };
     const captureTimestamps = [];
 
     try {
@@ -158,6 +181,43 @@ export function createFullPageCaptureCoordinator({
         }
         previousHeight = measurement.document.height;
 
+        if (suppressOverlays) {
+          checkCancelled(requestId);
+          onProgress({
+            state: index === 0 ? "inspecting-overlays" : "suppressing-overlays",
+            step: index + 1,
+            total: targets.length
+          });
+          overlayHandlingStarted = true;
+          const prepared = await pageAdapter.prepareOverlays(tab.id, requestId, {
+            identity,
+            suppress: index > 0,
+            maxCandidates: MAX_OVERLAY_CANDIDATES,
+            settleDelayMs: OVERLAY_SETTLE_DELAY_MS,
+            expectedScrollY: rawStep.actualY
+          });
+          if (!validateOverlayPrepareResult(prepared)) {
+            throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+          }
+          overlaySummary = {
+            detected: prepared.detected,
+            suppressed: prepared.suppressed
+          };
+          const afterSuppression = createPageMeasurement(prepared.rawMeasurement);
+          const geometryStable =
+            Math.abs(afterSuppression.viewport.width - measurement.viewport.width) <= OVERLAY_GEOMETRY_TOLERANCE_PX &&
+            Math.abs(afterSuppression.viewport.height - measurement.viewport.height) <= OVERLAY_GEOMETRY_TOLERANCE_PX &&
+            Math.abs(afterSuppression.document.width - measurement.document.width) <= OVERLAY_GEOMETRY_TOLERANCE_PX &&
+            Math.abs(afterSuppression.document.height - measurement.document.height) <= OVERLAY_GEOMETRY_TOLERANCE_PX &&
+            Math.abs(afterSuppression.originalScroll.x - measurement.originalScroll.x) <= OVERLAY_GEOMETRY_TOLERANCE_PX &&
+            Math.abs(afterSuppression.originalScroll.y - rawStep.actualY) <= OVERLAY_GEOMETRY_TOLERANCE_PX;
+          if (!geometryStable) {
+            throw createApplicationError({ code: ERROR_CODES.OVERLAY_SUPPRESSION_UNSTABLE });
+          }
+          measurement = afterSuppression;
+          checkCancelled(requestId);
+        }
+
         await waitForCaptureSlot(requestId, captureTimestamps.at(-1) ?? null,
           onProgress, index + 1, targets.length);
         checkCancelled(requestId);
@@ -212,6 +272,33 @@ export function createFullPageCaptureCoordinator({
         try { await offscreenAdapter.abortSession({ sessionId: jobId }); }
         catch (error) { operationError ??= structured(error, ERROR_CODES.OFFSCREEN_SESSION_FAILED); }
       }
+      if (overlayHandlingStarted) {
+        onProgress({ state: "restoring-overlays" });
+        try {
+          const restored = await pageAdapter.restoreOverlays(tab.id, requestId, { identity });
+          if (!validateOverlayRestoration(restored) || !restored.applicable ||
+              !restored.restorationSucceeded || restored.restored !== restored.detected) {
+            throw createApplicationError({ code: ERROR_CODES.OVERLAY_RESTORATION_FAILED });
+          }
+          overlayRestoration = restored;
+        } catch (error) {
+          if (operationError?.code === ERROR_CODES.PAGE_CHANGED ||
+              error?.code === ERROR_CODES.PAGE_CHANGED ||
+              error?.code === ERROR_CODES.PAGE_SCRIPT_UNAVAILABLE) {
+            overlayRestoration = {
+              detected: overlaySummary.detected,
+              suppressed: overlaySummary.suppressed,
+              restored: 0,
+              restorationSucceeded: false,
+              applicable: false
+            };
+          } else {
+            operationError = createApplicationError({
+              code: ERROR_CODES.OVERLAY_RESTORATION_FAILED
+            });
+          }
+        }
+      }
       if (initialized) {
         onProgress({ state: "restoring-page" });
         try {
@@ -224,7 +311,10 @@ export function createFullPageCaptureCoordinator({
             throw createApplicationError({ code: ERROR_CODES.RESTORATION_FAILED });
           }
         } catch {
-          operationError = createApplicationError({ code: ERROR_CODES.RESTORATION_FAILED });
+          if (operationError?.code !== ERROR_CODES.PAGE_CHANGED &&
+              operationError?.code !== ERROR_CODES.OVERLAY_RESTORATION_FAILED) {
+            operationError = createApplicationError({ code: ERROR_CODES.RESTORATION_FAILED });
+          }
         }
       }
       if (locked) {
@@ -250,6 +340,18 @@ export function createFullPageCaptureCoordinator({
     return {
       ...result,
       restoration,
+      overlayHandling: {
+        enabled: suppressOverlays,
+        detected: suppressOverlays ? overlayRestoration.detected : 0,
+        suppressed: suppressOverlays ? overlayRestoration.suppressed : 0,
+        restored: suppressOverlays ? overlayRestoration.restored : 0,
+        restorationSucceeded: suppressOverlays
+          ? overlayRestoration.restorationSucceeded
+          : true,
+        restorationApplicable: suppressOverlays
+          ? overlayRestoration.applicable
+          : true
+      },
       captureIntervalsMs: captureTimestamps.slice(1).map((timestamp, index) =>
         timestamp - captureTimestamps[index]),
       durationMs: Math.max(0, now() - startedAt)

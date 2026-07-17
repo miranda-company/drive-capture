@@ -7,6 +7,10 @@ const controllerSource = await readFile(
   new URL("../src/content/page-measurement.js", import.meta.url),
   "utf8"
 );
+const overlaySource = await readFile(
+  new URL("../src/content/page-overlays.js", import.meta.url),
+  "utf8"
+);
 
 function createControllerHarness() {
   let listener;
@@ -26,7 +30,8 @@ function createControllerHarness() {
     document: {
       documentElement: root,
       body,
-      scrollingElement: root
+      scrollingElement: root,
+      querySelectorAll() { return []; }
     },
     innerHeight: 800,
     innerWidth: 1000,
@@ -37,6 +42,16 @@ function createControllerHarness() {
     },
     scrollX: 0,
     scrollY: 0,
+    getComputedStyle() {
+      return {
+        position: "static",
+        display: "block",
+        visibility: "visible",
+        opacity: "1",
+        zIndex: "auto",
+        pointerEvents: "auto"
+      };
+    },
     setTimeout,
     window: {
       devicePixelRatio: 2,
@@ -48,6 +63,7 @@ function createControllerHarness() {
     }
   };
   context.globalThis = context;
+  vm.runInNewContext(overlaySource, context);
   vm.runInNewContext(controllerSource, context);
 
   async function send(message) {
@@ -111,4 +127,26 @@ test("interrupts settle or render waits after a page-controller cancellation", a
 
   assert.equal(cancelled.type, "PAGE_CONTROLLER_CANCEL_RESPONSE");
   assert.equal(outcome.payload.error.code, "OPERATION_CANCELLED");
+});
+
+test("acknowledges overlay preparation and restoration with serializable metadata", async () => {
+  const { send } = createControllerHarness();
+  const initialized = await send(
+    request("PAGE_CONTROLLER_INITIALIZE_REQUEST", { maxViewportChange: 2 })
+  );
+  const prepared = await send(request("PAGE_OVERLAY_PREPARE_REQUEST", {
+    identity: initialized.payload.identity,
+    suppress: false,
+    maxCandidates: 20,
+    settleDelayMs: 0
+  }));
+  assert.equal(prepared.type, "PAGE_OVERLAY_PREPARE_RESPONSE");
+  assert.equal(prepared.payload.detected, 0);
+  assert.equal(prepared.payload.candidates.length, 0);
+
+  const restored = await send(request("PAGE_OVERLAY_RESTORE_REQUEST", {
+    identity: initialized.payload.identity
+  }));
+  assert.equal(restored.type, "PAGE_OVERLAY_RESTORE_RESPONSE");
+  assert.equal(restored.payload.restorationSucceeded, true);
 });

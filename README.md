@@ -2,7 +2,18 @@
 
 DriveCapture is a planned Manifest V3 Chrome extension that will capture a high-resolution, full-page image of the active HTTP or HTTPS page and upload the resulting JPEG to a dedicated Google Drive folder created and managed by the extension.
 
-Phases 2A through 2D are implemented on top of the Phase 1 shell. In addition to the earlier diagnostics, DriveCapture can now generate a real full-page JPEG locally: it captures one viewport at a time, stitches it incrementally in the offscreen document, and exposes one temporary Blob-URL preview. Authentication, Drive folder management, upload, and sticky/fixed-element handling remain unimplemented.
+Phases 2A through 2E are implemented on top of the Phase 1 shell. In addition to the earlier diagnostics, DriveCapture can generate a real full-page JPEG locally, heuristically suppress repeated fixed overlays, stitch incrementally in the offscreen document, and expose one temporary Blob-URL preview. Authentication, Drive folder management, and upload remain unimplemented.
+
+## Current Phase 2E overlay handling
+
+- The full-page control includes **Suppress repeated fixed/sticky elements**, enabled by default for that capture only. Disabling it bypasses all overlay scanning, attributes, and style changes and retains Phase 2D behavior.
+- After each planned scroll, the injected controller performs one bounded visible-candidate scan. It ignores hidden, transparent, zero-sized, and offscreen elements and tracks at most 200 candidates.
+- Fixed elements are conservatively classified as top, bottom, or floating overlays and are eligible for suppression after the first segment. Sticky in-flow elements are inventoried but remain visible by default to avoid erasing article or table content.
+- The first segment keeps eligible overlays visible. Before later captures, qualifying fixed overlays are changed only with `visibility: hidden !important`, preserving layout.
+- DriveCapture preserves the original inline visibility value and priority and any pre-existing `data-drivecapture-element-id` value. Cleanup restores or removes each temporary value before restoring scroll and releasing the job lock.
+- Viewport, document, and scroll geometry are remeasured after suppression. Unexpected changes abort with a structured error rather than stitching incompatible segments.
+- Results report detected, suppressed, and restored counts plus overlap, newly covered, and maximum-gap diagnostics. They never contain page text, HTML, selectors, form values, or full URLs.
+- The heuristic cannot be perfect. Some sticky content may still repeat, and unusual fixed interfaces may be hidden when suppression is enabled.
 
 ## Current Phase 2D local full-page capture
 
@@ -13,7 +24,7 @@ Phases 2A through 2D are implemented on top of the Phase 1 shell. In addition to
 - The finished canvas is encoded with `canvas.toBlob("image/jpeg", 0.92)`. The Blob, Canvas, decoded image, and preview URL stay exclusively in offscreen memory; runtime messages carry only the current data URL or small JSON metadata, never the final Blob.
 - Only one completed result is retained. Starting another capture or selecting **Clear full-page preview** revokes the old URL and releases the Blob and Canvas. The offscreen document stays alive while a preview exists and closes after explicit clearing or any failed capture.
 - Conservative pre-allocation limits are 16,384 px wide, 32,767 px high, 100,000,000 pixels, and 400,000,000 estimated RGBA bytes. Unsafe pages fail rather than being truncated.
-- Sticky and fixed elements are not modified in Phase 2D and may repeat in the stitched image. Phase 2E will address them.
+- With Phase 2E suppression disabled, fixed and sticky elements may repeat exactly as in Phase 2D.
 - The result is local and temporary. No screenshot is written to Chrome storage, uploaded, downloaded, fetched, or sent to an external service.
 
 ## Current Phase 2C diagnostic
@@ -102,7 +113,7 @@ Because MV3 workers may be suspended, the active capture-job lock and only the s
 
 ### Injected page capture module
 
-Phase 2B implements a local packaged measurement controller that measures the document, scrolls to requested positions, reports actual positions, detects document/viewport changes, and restores the original scroll position. Fixed/sticky-element detection and style modification remain future work.
+The local packaged page controller measures and scrolls the document, reports actual positions, detects document/viewport changes, and restores the original scroll position. Phase 2E adds a separately packaged overlay controller that owns all candidate inventory, reversible attribute assignment, `visibility` suppression, geometry verification, and restoration. No page element reference leaves the injected context.
 
 The MVP will inject this module only after the action is invoked. It will not request persistent access to every website.
 
@@ -166,7 +177,7 @@ Scroll-and-stitch capture is inherently sensitive to page behavior:
 - Animations, video, auto-advancing content, and continuously changing pages can produce seams or inconsistent frames.
 - Virtualized lists may remove offscreen content, so the complete logical page may not exist in the DOM at once.
 - Lazy-loaded content can change page height during capture. The implementation will remeasure within strict iteration and capture limits, but cannot chase an endlessly growing page.
-- Phase 2D deliberately does not hide fixed/sticky elements, so headers, cookie banners, or floating controls may repeat. Reversible handling is deferred to Phase 2E.
+- Phase 2E uses a conservative heuristic. Fixed headers, cookie banners, and floating controls are normally suppressed after the first segment, but sticky in-flow content remains visible and may repeat. Unusual layouts can still be misclassified.
 - Cross-origin frames can be visible in screenshots but cannot be inspected or coordinated by the injected page module.
 - Browser zoom, display scaling, and screenshot bitmap sizing can differ. Placement must use measured capture scale and actual scroll positions.
 - Chrome may restrict script injection or capture on browser-internal pages, the Chrome Web Store, extension pages, and other protected URLs.
@@ -268,6 +279,17 @@ On 2026-07-17, local full-page Canvas stitching and the temporary preview were m
 
 No separate manual claim is recorded for page restoration, top/bottom completeness, seams or duplicated regions, sticky/fixed repetition, result clearing or replacement, memory cleanup, zoom, high-DPI output, cancellation, resize, navigation, Infinite Scroll, earlier-feature regressions, storage, network activity, or console inspection. Those scenarios remain unverified unless reported separately.
 
+## Phase 2E manual Chrome verification
+
+Phase 2E implementation is complete and automated verification passes, but manual Chrome verification of overlay suppression remains pending. Fixed/sticky handling remains heuristic. Visual correctness, DOM restoration on real pages, cancellation restoration, and difficult-page behavior are not yet fully accepted. After reloading the extension and target page:
+
+1. Compare full-page captures with suppression enabled and disabled on pages containing a fixed top header, bottom cookie bar, floating action control, and sticky section headings.
+2. Start from the middle and verify scroll restoration plus restoration of every modified element.
+3. Cancel after suppression and force a capture failure; inspect the page DOM for leftover DriveCapture attributes or hidden elements.
+4. Clear and replace the preview, then repeat on a short page, at 125%/150% zoom, on high-DPI output, and on the Infinite Scroll demo.
+5. Re-run visible-viewport, scrolling, segmented-capture, and scaffold regressions.
+6. Inspect extension storage, page DOM, network activity, and worker/offscreen consoles for page data, screenshot persistence, external requests, stale locks, or cleanup errors.
+
 ## Future implementation testing plan
 
 Once the relevant roadmap phase is implemented:
@@ -332,4 +354,4 @@ DriveCapture accepts ordinary HTTP and HTTPS pages. It rejects browser-internal 
 
 ## Project status
 
-Phase 2D local incremental Canvas stitching and temporary JPEG preview are implemented with automated coverage. Local stitching and popup display of the offscreen Blob URL were manually verified in Chrome on 2026-07-17; the additional scenario-specific checks listed above remain unverified. The earlier scaffold, visible capture, scrolling diagnostic, and segmented diagnostic remain available. Sticky-element modification, OAuth, Drive, and downloads remain unimplemented.
+Phase 2E fixed-overlay suppression, mandatory overlay restoration, stitching diagnostics, and the per-capture disable option are implemented with automated coverage. Phase 2E manual Chrome verification remains pending. Local Phase 2D stitching and popup display of the offscreen Blob URL were manually verified on 2026-07-17. The earlier scaffold, visible capture, scrolling diagnostic, and segmented diagnostic remain available. OAuth, Drive, and downloads remain unimplemented.

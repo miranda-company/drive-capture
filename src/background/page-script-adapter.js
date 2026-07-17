@@ -8,7 +8,10 @@ export function createPageScriptAdapter({ chromeApi = globalThis.chrome, timeout
     try {
       await chromeApi.scripting.executeScript({
         target: { tabId },
-        files: ["src/content/page-measurement.js"]
+        files: [
+          "src/content/page-overlays.js",
+          "src/content/page-measurement.js"
+        ]
       });
     } catch {
       throw createApplicationError({ code: ERROR_CODES.PAGE_SCRIPT_UNAVAILABLE });
@@ -47,6 +50,8 @@ export function createPageScriptAdapter({ chromeApi = globalThis.chrome, timeout
     measure: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_MEASUREMENT_REQUEST, MESSAGE_TYPES.PAGE_MEASUREMENT_RESPONSE, requestId, payload),
     scrollStep: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_SCROLL_STEP_REQUEST, MESSAGE_TYPES.PAGE_SCROLL_STEP_RESULT, requestId, payload),
     cancel: (tabId, requestId, payload = {}) => send(tabId, MESSAGE_TYPES.PAGE_CONTROLLER_CANCEL_REQUEST, MESSAGE_TYPES.PAGE_CONTROLLER_CANCEL_RESPONSE, requestId, payload),
+    prepareOverlays: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_OVERLAY_PREPARE_REQUEST, MESSAGE_TYPES.PAGE_OVERLAY_PREPARE_RESPONSE, requestId, payload),
+    restoreOverlays: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_OVERLAY_RESTORE_REQUEST, MESSAGE_TYPES.PAGE_OVERLAY_RESTORE_RESPONSE, requestId, payload),
     restore: (tabId, requestId, payload) => send(tabId, MESSAGE_TYPES.PAGE_RESTORE_REQUEST, MESSAGE_TYPES.PAGE_RESTORE_RESULT, requestId, payload)
   });
 }

@@ -35,6 +35,12 @@ export const ERROR_CODES = Object.freeze({
   PREVIEW_URL_FAILED: "PREVIEW_URL_FAILED",
   FULL_PAGE_RESULT_UNAVAILABLE: "FULL_PAGE_RESULT_UNAVAILABLE",
   FULL_PAGE_RESULT_CLEANUP_FAILED: "FULL_PAGE_RESULT_CLEANUP_FAILED",
+  OVERLAY_SCAN_FAILED: "OVERLAY_SCAN_FAILED",
+  OVERLAY_LIMIT_EXCEEDED: "OVERLAY_LIMIT_EXCEEDED",
+  OVERLAY_SUPPRESSION_FAILED: "OVERLAY_SUPPRESSION_FAILED",
+  OVERLAY_SUPPRESSION_UNSTABLE: "OVERLAY_SUPPRESSION_UNSTABLE",
+  OVERLAY_RESTORATION_FAILED: "OVERLAY_RESTORATION_FAILED",
+  STITCHING_GEOMETRY_INVALID: "STITCHING_GEOMETRY_INVALID",
   INTERNAL_ERROR: "INTERNAL_ERROR"
 });
 
@@ -73,6 +79,12 @@ const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.PREVIEW_URL_FAILED]: "A temporary preview URL could not be created.",
   [ERROR_CODES.FULL_PAGE_RESULT_UNAVAILABLE]: "No temporary full-page result is available.",
   [ERROR_CODES.FULL_PAGE_RESULT_CLEANUP_FAILED]: "The temporary full-page result could not be cleared safely.",
+  [ERROR_CODES.OVERLAY_SCAN_FAILED]: "DriveCapture could not inspect fixed and sticky page elements safely.",
+  [ERROR_CODES.OVERLAY_LIMIT_EXCEEDED]: "The page contains too many fixed or sticky elements to track safely.",
+  [ERROR_CODES.OVERLAY_SUPPRESSION_FAILED]: "Repeated page overlays could not be suppressed safely.",
+  [ERROR_CODES.OVERLAY_SUPPRESSION_UNSTABLE]: "Suppressing repeated overlays changed the page geometry unexpectedly.",
+  [ERROR_CODES.OVERLAY_RESTORATION_FAILED]: "DriveCapture could not restore every modified page overlay.",
+  [ERROR_CODES.STITCHING_GEOMETRY_INVALID]: "The captured segment geometry is incompatible with the stitched image.",
   [ERROR_CODES.INTERNAL_ERROR]: "DriveCapture encountered an unexpected error."
 });
 

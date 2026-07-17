@@ -42,6 +42,7 @@ const fullPagePreview = document.querySelector("#full-page-preview");
 const fullPagePreviewImage = document.querySelector("#full-page-preview-image");
 const fullPageMetadata = document.querySelector("#full-page-metadata");
 const clearFullPageButton = document.querySelector("#clear-full-page-preview");
+const suppressOverlaysOption = document.querySelector("#suppress-overlays");
 
 let activeCaptureRequestId = null;
 let pendingPreviewResult = null;
@@ -55,12 +56,12 @@ function userSafeError(response, fallback) {
   return validateApplicationError(error) ? error.message : fallback;
 }
 
-function createWorkerRequest(type) {
+function createWorkerRequest(type, payload = {}) {
   return createMessage({
     type,
     source: CONTEXTS.POPUP,
     target: CONTEXTS.SERVICE_WORKER,
-    payload: {}
+    payload
   });
 }
 
@@ -80,6 +81,7 @@ function setBusy(isBusy) {
   diagnosticButton.disabled = isBusy;
   segmentedButton.disabled = isBusy;
   fullPageButton.disabled = isBusy;
+  suppressOverlaysOption.disabled = isBusy;
 }
 
 function showFullPageResult(result) {
@@ -96,6 +98,15 @@ function showFullPageResult(result) {
     ["Restored scroll", result.restoration
       ? `${result.restoration.actual.x}, ${result.restoration.actual.y} (${result.restoration.withinTolerance ? "restored" : "not restored"})`
       : "—"],
+    ["Fixed/sticky candidates", String(result.overlayHandling?.detected ?? 0)],
+    ["Overlays suppressed", String(result.overlayHandling?.suppressed ?? 0)],
+    ["Elements restored", String(result.overlayHandling?.restored ?? 0)],
+    ["Overlay restoration", result.overlayHandling?.restorationSucceeded === false
+      ? "Failed or not applicable"
+      : "Succeeded"],
+    ["Total overlap", `${result.stitchingDiagnostics.totalOverlapPixels} px`],
+    ["Newly covered", `${result.stitchingDiagnostics.totalNewlyCoveredPixels} px`],
+    ["Maximum gap", `${result.stitchingDiagnostics.maximumGapPixels} px`],
     ["Created", new Date(result.createdAt).toLocaleString()]
   ]) {
     const wrapper = document.createElement("div");
@@ -127,7 +138,9 @@ async function runFullPageCapture() {
   setBusy(true);
   cancelFullPageButton.hidden = false;
   setCaptureState("measuring-page", "Measuring page…");
-  const request = createWorkerRequest(MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST);
+  const request = createWorkerRequest(MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST, {
+    suppressOverlays: suppressOverlaysOption.checked
+  });
   activeFullPageRequestId = request.requestId;
   try {
     const response = await chrome.runtime.sendMessage(request);
@@ -575,12 +588,15 @@ chrome.runtime.onMessage.addListener((message) => {
     if (progress.state === "measuring-page") setCaptureState("measuring-page", "Measuring page…");
     if (progress.state === "preparing-offscreen") setCaptureState("preparing-offscreen", "Preparing offscreen processor…");
     if (progress.state === "preparing-canvas") setCaptureState("preparing-canvas", "Preparing canvas…");
+    if (progress.state === "inspecting-overlays") setCaptureState("inspecting-overlays", "Inspecting fixed and sticky elements…");
+    if (progress.state === "suppressing-overlays") setCaptureState("suppressing-overlays", "Suppressing repeated overlays…");
     if (progress.state === "scrolling") setCaptureState("scrolling", `Scrolling — Step ${progress.step} of ${progress.total}`);
     if (progress.state === "waiting-to-capture") setCaptureState("waiting-to-capture", "Waiting to capture…");
     if (progress.state === "capturing-segment") setCaptureState("capturing-segment", `Capturing segment ${progress.step} of ${progress.total}…`);
     if (progress.state === "drawing-segment") setCaptureState("drawing-segment", `Drawing segment ${progress.step} of ${progress.total}…`);
     if (progress.state === "encoding-image") setCaptureState("encoding-image", "Encoding temporary JPEG…");
     if (progress.state === "restoring-page") setCaptureState("restoring-page", "Restoring page…");
+    if (progress.state === "restoring-overlays") setCaptureState("restoring-overlays", "Restoring page overlays…");
   }
 
   return false;
@@ -596,6 +612,10 @@ cancelSegmentedButton.addEventListener("click", cancelSegmentedCaptureDiagnostic
 fullPageButton.addEventListener("click", runFullPageCapture);
 cancelFullPageButton.addEventListener("click", cancelFullPageCapture);
 clearFullPageButton.addEventListener("click", () => clearFullPageResult());
+fullPagePreviewImage.addEventListener("error", () => {
+  void clearFullPageResult({ announce: false });
+  setCaptureState("full-page-failed", "Capture failed — the temporary full-page preview could not be displayed.");
+});
 previewImage.addEventListener("load", showLoadedPreview);
 previewImage.addEventListener("error", () => captureFailure("The JPEG preview could not be displayed."));
 window.addEventListener("pagehide", () => {

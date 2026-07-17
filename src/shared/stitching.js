@@ -53,6 +53,7 @@ export function calculateSegmentPlacement({
     source: { x: 0, y: 0, width: bitmapWidth, height: drawHeight },
     destination: { x: 0, y: destinationY, width: bitmapWidth, height: drawHeight },
     gap, overlap,
+    overwrittenRowCount: overlap,
     newlyCoveredPixels: Math.max(0, newCoveredBottom - coveredBottom),
     coveredBottom: newCoveredBottom,
     hasUnsafeGap: gap > gapTolerance
@@ -65,5 +66,11 @@ export function validateFullPageResult(value) {
     positiveInteger(value.width) && positiveInteger(value.height) &&
     positiveInteger(value.encodedBytes) && positiveInteger(value.createdAt) &&
     positiveInteger(value.segmentCount) && Array.isArray(value.placements) &&
-    value.placements.length === value.segmentCount && typeof value.horizontalOverflow === "boolean");
+    value.placements.length === value.segmentCount && typeof value.horizontalOverflow === "boolean" &&
+    Number.isFinite(value.stitchingDiagnostics?.totalOverlapPixels) &&
+    value.stitchingDiagnostics.totalOverlapPixels >= 0 &&
+    Number.isFinite(value.stitchingDiagnostics?.totalNewlyCoveredPixels) &&
+    value.stitchingDiagnostics.totalNewlyCoveredPixels >= 0 &&
+    Number.isFinite(value.stitchingDiagnostics?.maximumGapPixels) &&
+    value.stitchingDiagnostics.maximumGapPixels >= 0);
 }

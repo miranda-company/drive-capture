@@ -382,9 +382,13 @@ async function handleMessage(message) {
       });
 
     case MESSAGE_TYPES.FULL_PAGE_CAPTURE_REQUEST: {
-      if (message.source !== CONTEXTS.POPUP) throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      if (message.source !== CONTEXTS.POPUP ||
+          typeof message.payload.suppressOverlays !== "boolean") {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
       const result = await fullPageCapture.run({
         requestId: message.requestId,
+        suppressOverlays: message.payload.suppressOverlays,
         onProgress: (payload) => notifyFullPageCaptureProgress(message.requestId, payload)
       });
       return createMessage({

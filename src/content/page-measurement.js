@@ -16,6 +16,10 @@
     RESTORE_RESULT: "PAGE_RESTORE_RESULT",
     CANCEL: "PAGE_CONTROLLER_CANCEL_REQUEST",
     CANCEL_RESULT: "PAGE_CONTROLLER_CANCEL_RESPONSE",
+    OVERLAY_PREPARE: "PAGE_OVERLAY_PREPARE_REQUEST",
+    OVERLAY_PREPARE_RESULT: "PAGE_OVERLAY_PREPARE_RESPONSE",
+    OVERLAY_RESTORE: "PAGE_OVERLAY_RESTORE_REQUEST",
+    OVERLAY_RESTORE_RESULT: "PAGE_OVERLAY_RESTORE_RESPONSE",
     ERROR: "APPLICATION_ERROR_RESPONSE"
   };
   let state = null;
@@ -98,6 +102,11 @@
   async function handle(message) {
     if (message.type === TYPES.INIT) {
       cancelledRequests.delete(message.requestId);
+      const overlays = globalThis.__driveCaptureOverlayControllerV1;
+      if (!overlays) {
+        throw appError("PAGE_SCRIPT_UNAVAILABLE", "DriveCapture could not communicate with this page.");
+      }
+      overlays.begin();
       const measurement = rawMeasurement();
       state = {
         root: document.documentElement,
@@ -113,9 +122,34 @@
       return envelope(message, TYPES.CANCEL_RESULT, { accepted: true });
     }
     if (!state) throw appError("PAGE_SCRIPT_UNAVAILABLE", "DriveCapture could not communicate with this page.");
+    if (message.type === TYPES.OVERLAY_RESTORE) {
+      const overlays = globalThis.__driveCaptureOverlayControllerV1;
+      const restoration = overlays.restore();
+      return envelope(message, TYPES.OVERLAY_RESTORE_RESULT, {
+        identity: state.identity,
+        ...restoration
+      });
+    }
     if (message.type === TYPES.MEASURE) {
       assertIdentity(message.payload.identity);
       return envelope(message, TYPES.MEASURE_RESULT, { identity: state.identity, rawMeasurement: rawMeasurement() });
+    }
+    if (message.type === TYPES.OVERLAY_PREPARE) {
+      assertNotCancelled(message.requestId);
+      assertIdentity(message.payload.identity);
+      const overlays = globalThis.__driveCaptureOverlayControllerV1;
+      const prepared = overlays.prepare({
+        suppress: message.payload.suppress,
+        maxCandidates: message.payload.maxCandidates
+      });
+      await cancellableDelay(message.payload.settleDelayMs, message.requestId);
+      assertNotCancelled(message.requestId);
+      assertIdentity(message.payload.identity);
+      return envelope(message, TYPES.OVERLAY_PREPARE_RESULT, {
+        identity: state.identity,
+        ...prepared,
+        rawMeasurement: rawMeasurement()
+      });
     }
     if (message.type === TYPES.SCROLL) {
       assertIdentity(message.payload.identity);

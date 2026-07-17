@@ -178,11 +178,15 @@ export function createCanvasStitchSessionManager({
         coveredBottom: session.coveredBottom,
         gapTolerance
       });
-      if (!placement || placement.hasUnsafeGap) {
+      if (!placement) {
+        throw createApplicationError({ code: ERROR_CODES.STITCHING_GEOMETRY_INVALID });
+      }
+      if (placement.hasUnsafeGap) {
         throw createApplicationError({ code: ERROR_CODES.SEGMENT_GAP_DETECTED });
       }
       const source = placement.source;
       const destination = placement.destination;
+      const previousBottom = session.coveredBottom;
       try {
         session.context.drawImage(
           drawable.image,
@@ -198,9 +202,12 @@ export function createCanvasStitchSessionManager({
         segmentIndex: payload.segmentIndex,
         actualScrollY: payload.actualScrollY,
         destinationY: destination.y,
-        previousBottom: session.coveredBottom,
+        previousBottom,
+        sourceCropHeight: source.height,
         drawnHeight: destination.height,
         overlap: placement.overlap,
+        uncoveredGap: placement.gap,
+        overwrittenRowCount: placement.overwrittenRowCount,
         newlyCoveredPixels: placement.newlyCoveredPixels,
         coveredBottom: placement.coveredBottom
       };
@@ -249,6 +256,20 @@ export function createCanvasStitchSessionManager({
       encodingDurationMs: Math.max(0, now() - encodingStartedAt),
       segmentCount: session.segmentCount,
       placements: session.placements.map((placement) => ({ ...placement })),
+      stitchingDiagnostics: {
+        totalOverlapPixels: session.placements.reduce(
+          (total, placement) => total + placement.overlap,
+          0
+        ),
+        totalNewlyCoveredPixels: session.placements.reduce(
+          (total, placement) => total + placement.newlyCoveredPixels,
+          0
+        ),
+        maximumGapPixels: session.placements.reduce(
+          (maximum, placement) => Math.max(maximum, placement.uncoveredGap),
+          0
+        )
+      },
       horizontalOverflow: session.documentDimensions.width >
         session.allocation.width / session.geometry.scale.x,
       scale: { ...session.geometry.scale },

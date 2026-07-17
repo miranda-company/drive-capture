@@ -23,6 +23,7 @@ function storage() {
 
 function harness(overrides = {}) {
   let clock = 1000;
+  let currentY = 0;
   const calls = [];
   const releases = [];
   const jobState = createJobState(storage());
@@ -31,11 +32,34 @@ function harness(overrides = {}) {
     async initialize() { calls.push("initialize"); return { identity, hostname: "example.com" }; },
     async measure() { calls.push("measure"); return { identity, rawMeasurement: raw() }; },
     async scrollStep(_tab, _request, payload) {
+      currentY = payload.targetY;
       calls.push(`scroll:${payload.targetY}`);
       return { identity, requestedY: payload.targetY, actualY: payload.targetY,
         clamped: false, documentHeightChanged: false, rawMeasurement: raw(120, payload.targetY) };
     },
     async cancel() { calls.push("page-cancel"); return { accepted: true }; },
+    async prepareOverlays(_tab, _request, payload) {
+      calls.push(`overlay-prepare:${payload.suppress}`);
+      return {
+        identity,
+        candidates: [],
+        detected: 0,
+        suppressed: 0,
+        suppressionApplied: payload.suppress,
+        rawMeasurement: raw(120, payload.expectedScrollY)
+      };
+    },
+    async restoreOverlays() {
+      calls.push("overlay-restore");
+      return {
+        identity,
+        detected: 0,
+        suppressed: 0,
+        restored: 0,
+        restorationSucceeded: true,
+        applicable: true
+      };
+    },
     async restore() { calls.push("restore"); return { identity, actual: { x: 0, y: 0 }, withinTolerance: true, settled: true }; },
     ...overrides.pageAdapter
   };
@@ -59,7 +83,12 @@ function harness(overrides = {}) {
       calls.push("session-finish");
       return { available: true, previewUrl: "blob:full-page", mimeType: "image/jpeg",
         width: 200, height: 240, encodedBytes: 1000, createdAt: 3000,
-        segmentCount: 3, placements, horizontalOverflow: false, scale: { x: 2, y: 2 } };
+        segmentCount: 3, placements, horizontalOverflow: false, scale: { x: 2, y: 2 },
+        stitchingDiagnostics: {
+          totalOverlapPixels: 60,
+          totalNewlyCoveredPixels: 240,
+          maximumGapPixels: 0
+        } };
     },
     async abortSession() { calls.push("session-abort"); },
     async closeDocument() { calls.push("offscreen-close"); },
@@ -85,6 +114,12 @@ test("captures, draws, and releases one segment at a time with 550 ms pacing", a
   assert.equal(setup.calls.includes("offscreen-close"), false);
   assert.equal(setup.calls.at(-1), "restore");
   assert.equal(await setup.jobState.readActiveJob(), null);
+  assert.deepEqual(
+    setup.calls.filter((value) => value.startsWith("overlay-prepare:")),
+    ["overlay-prepare:false", "overlay-prepare:true", "overlay-prepare:true"]
+  );
+  assert.ok(setup.calls.indexOf("overlay-prepare:true") < setup.calls.indexOf("capture:1550"));
+  assert.ok(setup.calls.indexOf("overlay-restore") < setup.calls.indexOf("restore"));
 });
 
 test("does not capture the next viewport before the draw acknowledgement", async () => {
@@ -150,6 +185,7 @@ test("cancellation during capture throttling prevents later captures and cleans 
   assert.equal(setup.calls.filter((value) => value.startsWith("capture:")).length, 1);
   assert.equal(setup.calls.includes("page-cancel"), true);
   assert.equal(setup.calls.includes("session-abort"), true);
+  assert.equal(setup.calls.includes("overlay-restore"), true);
   assert.equal(setup.calls.includes("offscreen-close"), true);
   assert.equal(await setup.jobState.readActiveJob(), null);
 });
@@ -199,4 +235,101 @@ test("navigation and resize errors restore, close offscreen, and release the loc
     assert.equal(setup.calls.includes("offscreen-close"), true);
     assert.equal(await setup.jobState.readActiveJob(), null);
   }
+});
+
+test("suppression can be disabled without page overlay calls or modifications", async () => {
+  const setup = harness();
+  const result = await setup.coordinator.run({
+    requestId: "request-1",
+    suppressOverlays: false
+  });
+  assert.equal(setup.calls.some((value) => value.startsWith("overlay-")), false);
+  assert.deepEqual(result.overlayHandling, {
+    enabled: false,
+    detected: 0,
+    suppressed: 0,
+    restored: 0,
+    restorationSucceeded: true,
+    restorationApplicable: true
+  });
+});
+
+test("reports detected, suppressed, and restored overlays after successful cleanup", async () => {
+  let prepareCount = 0;
+  const setup = harness({ pageAdapter: {
+    async prepareOverlays(_tab, _request, payload) {
+      prepareCount += 1;
+      return {
+        identity,
+        candidates: [],
+        detected: prepareCount === 1 ? 2 : 3,
+        suppressed: payload.suppress ? 2 : 0,
+        suppressionApplied: payload.suppress,
+        rawMeasurement: raw(120, payload.expectedScrollY)
+      };
+    },
+    async restoreOverlays() {
+      return {
+        identity,
+        detected: 3,
+        suppressed: 2,
+        restored: 3,
+        restorationSucceeded: true,
+        applicable: true
+      };
+    }
+  } });
+  const result = await setup.coordinator.run({ requestId: "request-1" });
+  assert.deepEqual(result.overlayHandling, {
+    enabled: true,
+    detected: 3,
+    suppressed: 2,
+    restored: 3,
+    restorationSucceeded: true,
+    restorationApplicable: true
+  });
+});
+
+test("layout instability after suppression aborts and still restores overlays and scroll", async () => {
+  const setup = harness({ pageAdapter: {
+    async prepareOverlays(_tab, _request, payload) {
+      return {
+        identity,
+        candidates: [],
+        detected: 1,
+        suppressed: payload.suppress ? 1 : 0,
+        suppressionApplied: payload.suppress,
+        rawMeasurement: raw(140, payload.expectedScrollY)
+      };
+    }
+  } });
+  await assert.rejects(
+    setup.coordinator.run({ requestId: "request-1" }),
+    (error) => error.code === "OVERLAY_SUPPRESSION_UNSTABLE"
+  );
+  assert.equal(setup.calls.includes("overlay-restore"), true);
+  assert.equal(setup.calls.includes("restore"), true);
+  assert.equal(await setup.jobState.readActiveJob(), null);
+});
+
+test("overlay restoration failure prevents a successful result and releases the lock", async () => {
+  const setup = harness({ pageAdapter: {
+    async restoreOverlays() {
+      return {
+        identity,
+        detected: 1,
+        suppressed: 1,
+        restored: 0,
+        restorationSucceeded: false,
+        applicable: true
+      };
+    }
+  } });
+  await assert.rejects(
+    setup.coordinator.run({ requestId: "request-1" }),
+    (error) => error.code === "OVERLAY_RESTORATION_FAILED"
+  );
+  assert.equal(setup.calls.includes("restore"), true);
+  assert.equal(setup.calls.includes("offscreen-close"), true);
+  assert.equal(await setup.jobState.readActiveJob(), null);
 });

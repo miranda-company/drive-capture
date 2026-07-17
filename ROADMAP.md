@@ -160,7 +160,28 @@ Completed in this checkpoint:
 Still pending:
 
 - Manual Chrome verification of long/short pages, multiple zoom/high-DPI settings, cancellation/failure paths, memory cleanup, regressions, and offscreen Blob-URL rendering in the popup.
-- Reversible fixed/sticky-element handling (Phase 2E), followed by authentication and Google Drive upload phases.
+- Manual Phase 2E difficult-page verification, followed by authentication and Google Drive upload phases.
+
+### Phase 2E checkpoint: fixed/sticky suppression and screenshot hardening
+
+**Status:** Implementation is complete and automated verification passes. Manual Chrome verification of overlay suppression remains pending. Fixed/sticky handling remains heuristic; visual correctness, DOM restoration on real pages, cancellation restoration, and difficult-page behavior are not yet fully accepted. Full Phase 2 is not complete.
+
+Completed in this checkpoint:
+
+- A per-capture suppression option, enabled by default, with a strict no-DOM-modification path when disabled.
+- Bounded visible fixed/sticky inventory using temporary controller-owned IDs and operational metadata only.
+- Conservative top, bottom, floating, sticky-in-flow, and unknown classification; fixed repeated overlays are suppressible while sticky in-flow content remains visible by default.
+- First-segment visibility followed by acknowledged `visibility: hidden !important` suppression before later captures.
+- Preservation and restoration of inline visibility values/priorities and pre-existing temporary-attribute values.
+- Geometry checks after suppression and stable scan, limit, suppression, instability, restoration, and stitching errors.
+- Mandatory overlay restoration before scroll restoration and lock release across success, failure, encoding, cancellation, navigation/resize, and dynamic-page cleanup.
+- Extended result metadata for overlay handling, source cropping, overlap, newly covered pixels, gaps, and overwritten rows.
+
+Still pending:
+
+- Manual Chrome verification across representative fixed headers, cookie bars, floating controls, sticky headings, cancellation/failure cleanup, zoom/high-DPI, Infinite Scroll, DOM/storage/network inspection, and earlier regressions.
+- Further tuning for unusual sticky/fixed interfaces; the heuristic intentionally cannot guarantee perfect classification.
+- OAuth, managed Drive folder creation, and upload phases.
 
 ### Objective
 

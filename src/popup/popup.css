@@ -43,6 +43,25 @@ p {
   line-height: 1.45;
 }
 
+.capture-option {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.capture-option input {
+  margin-top: 0.15rem;
+}
+
+.option-warning {
+  margin-top: 0.55rem;
+  color: GrayText;
+  font-size: 0.75rem;
+}
+
 .eyebrow {
   color: GrayText;
   font-size: 0.72rem;
