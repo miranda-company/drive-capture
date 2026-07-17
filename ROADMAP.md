@@ -107,7 +107,7 @@ Phase 2A acceptance status:
 
 ### Phase 2B checkpoint: measurement and controlled-scrolling diagnostic
 
-**Status:** Implemented on 2026-07-17 with automated tests. The general measurement/controlled-scrolling diagnostic was manually tested in Chrome; scenario-specific restoration, cancellation, resize, navigation, dynamic-page, and visible-capture regression outcomes were not separately reported. Full Phase 2 is not complete.
+**Status:** Implemented on 2026-07-17 with automated tests. Chrome verification now covers successful restoration, cancellation, popup closure, bounded dynamic-page failure, a short page, and the visible-capture regression. Navigation recovery is partially verified; viewport resize, all concurrency combinations, and complete runtime/privacy inspection remain pending. Full Phase 2 is not complete.
 
 Completed in this checkpoint:
 

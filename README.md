@@ -213,14 +213,20 @@ On 2026-07-17, the visible-viewport capture was manually tested in Chrome. This 
 
 ## Phase 2B manual Chrome verification
 
-On 2026-07-17, the page-measurement and controlled-scrolling diagnostic was manually tested in Chrome. Only that general diagnostic run was reported as completed. The following scenario-specific results were not separately reported, so this document does not infer outcomes for them:
+On 2026-07-17, the following Phase 2B scenarios were separately exercised in Chrome. A result is marked passed only where the outcome was directly observed.
 
-- Successful restoration to the original position: not separately reported.
-- Cancellation and restoration after cancellation: not separately reported.
-- Resize detection and restoration: not separately reported.
-- Navigation detection and restoration attempt: not separately reported.
-- Dynamic or infinitely growing page behavior: not separately reported.
-- Visible-viewport capture regression after Phase 2B: not separately reported.
+| Test | Result | Relevant observations |
+| --- | --- | --- |
+| Successful restoration | Passed | On `eloquent.es`, the complete 9-position plan restored `(0, 3200)` to `(0, 3200)`, a difference of `(0, 0)` with the configured 2 px tolerance. A subsequent operation could start. |
+| Cancellation | Passed | Cancellation was requested after a non-zero step. The popup reported that the diagnostic was canceled, the page restored to its starting position, and later capture and diagnostic jobs succeeded, confirming lock release. |
+| Popup closure | Passed | Closing the popup during active scrolling allowed the worker-owned operation to continue cleanup and restore the page. A later capture and diagnostic succeeded without a stale lock. This completion-and-restoration behavior is intentional; popup lifetime does not own the worker job. |
+| Viewport resize | Not separately verified | Automated coverage exercises the structured `VIEWPORT_CHANGED` cleanup path, but the complete Chrome scenario has not been independently observed. |
+| Navigation | Partially verified | Navigating from `eloquent.es` to `example.com` stopped interaction with the old document; the replacement page remained at `(0, 0)` and accepted a new diagnostic. The initiating popup closed during navigation, so its old operation's structured error was not directly observed. The removed document is not claimed to have been restored. |
+| Dynamic page | Passed: controlled failure | The Infinite Scroll full-page demo initially measured 3420 px high. Its same-document History API URL change exposed and led to correction of a false `PAGE_CHANGED` defect. After the correction, the diagnostic exceeded the limit of 2 dynamic-plan revisions and returned `DYNAMIC_PAGE_UNSTABLE` ("The page kept changing size during the diagnostic") without hanging; cleanup attempts restoration and lock release in `finally`. |
+| Short page | Passed | `example.com` measured 1680 × 896 with zero maximum scroll. The plan and visited positions each contained only one zero-position step, no movement occurred, and restoration succeeded at `(0, 0)`. |
+| Visible-capture regression | Passed | A 3360 × 1792 temporary JPEG preview appeared, was cleared, and a following 9-position diagnostic completed and restored successfully. |
+| Concurrency | Not separately verified | Shared-lock rejection is covered automatically, but all three requested Chrome concurrency combinations have not been independently observed. |
+| Privacy and runtime inspection | Not separately verified | Static and automated checks cover storage and logging boundaries; the complete Chrome network, service-worker console, and session-storage inspection remains pending. |
 
 ## Future implementation testing plan
 

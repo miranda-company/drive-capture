@@ -44,7 +44,6 @@
   const identityMatches = (identity) => state && identity &&
     identity.hrefFingerprint === state.identity.hrefFingerprint &&
     identity.timeOrigin === state.identity.timeOrigin &&
-    hashHref() === state.identity.hrefFingerprint &&
     performance.timeOrigin === state.identity.timeOrigin &&
     document.documentElement === state.root;
   const appError = (code, message) => ({ code, message, retryable: false, context: {} });
