@@ -23,7 +23,7 @@
     "https://www.googleapis.com/*"
   ],
   "oauth2": {
-    "client_id": "YOUR_CHROME_EXTENSION_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "client_id": "136171177273-7nbt9i1d7khqk09f65gum1qq2je2cth1.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/drive.file"
     ]

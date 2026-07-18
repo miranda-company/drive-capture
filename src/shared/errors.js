@@ -61,6 +61,7 @@ export const ERROR_CODES = Object.freeze({
   DRIVE_FOLDER_DISCOVERY_FAILED: "DRIVE_FOLDER_DISCOVERY_FAILED",
   DRIVE_FOLDER_CREATE_FAILED: "DRIVE_FOLDER_CREATE_FAILED",
   DRIVE_FOLDER_CACHE_FAILED: "DRIVE_FOLDER_CACHE_FAILED",
+  DRIVE_LOCAL_STATE_FAILED: "DRIVE_LOCAL_STATE_FAILED",
   DRIVE_SETUP_BUSY: "DRIVE_SETUP_BUSY",
   INTERNAL_ERROR: "INTERNAL_ERROR"
 });
@@ -126,6 +127,7 @@ const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.DRIVE_FOLDER_DISCOVERY_FAILED]: "The managed Drive folder could not be found safely.",
   [ERROR_CODES.DRIVE_FOLDER_CREATE_FAILED]: "The managed Drive folder could not be created.",
   [ERROR_CODES.DRIVE_FOLDER_CACHE_FAILED]: "The managed Drive folder cache could not be updated.",
+  [ERROR_CODES.DRIVE_LOCAL_STATE_FAILED]: "DriveCapture could not update the local Drive connection state.",
   [ERROR_CODES.DRIVE_SETUP_BUSY]: "Another DriveCapture operation is already running.",
   [ERROR_CODES.INTERNAL_ERROR]: "DriveCapture encountered an unexpected error."
 });

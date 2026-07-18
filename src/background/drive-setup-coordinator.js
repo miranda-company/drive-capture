@@ -7,6 +7,7 @@ export function createDriveSetupCoordinator({
   auth,
   driveClient,
   managedFolder,
+  localState,
   jobState,
   now = Date.now,
   createJobId = createRequestId,
@@ -72,6 +73,13 @@ export function createDriveSetupCoordinator({
         status: "connecting"
       });
     }
+    if (await localState.isExplicitlyDisconnected()) {
+      return createSafeDriveSetupResult({
+        configured: true,
+        connected: false,
+        status: "not-connected"
+      });
+    }
     let tokenState;
     try {
       tokenState = await auth.acquireToken({ interactive: false });
@@ -128,8 +136,10 @@ export function createDriveSetupCoordinator({
   async function connect() {
     return runLocked("drive-connect", async () => {
       onProgress({ state: "connecting" });
-      let tokenState = await auth.acquireToken({ interactive: true });
+      let tokenState;
       try {
+        await localState.setExplicitlyDisconnected(false);
+        tokenState = await auth.acquireToken({ interactive: true });
         onProgress({ state: "checking-folder" });
         const folder = await managedFolder.ensure((parameters) =>
           requestWithToken(tokenState, parameters));
@@ -144,14 +154,20 @@ export function createDriveSetupCoordinator({
             duplicateCount: folder.duplicateCount
           }
         });
+      } catch (error) {
+        await localState.setExplicitlyDisconnected(true);
+        throw error;
       } finally {
-        tokenState.token = "";
+        if (tokenState) tokenState.token = "";
       }
     });
   }
 
   async function ensureFolder() {
     return runLocked("drive-ensure-folder", async () => {
+      if (await localState.isExplicitlyDisconnected()) {
+        throw createApplicationError({ code: ERROR_CODES.AUTH_REQUIRED });
+      }
       let tokenState = await auth.acquireToken({ interactive: false });
       try {
         onProgress({ state: "checking-folder" });
@@ -178,6 +194,7 @@ export function createDriveSetupCoordinator({
     return runLocked("drive-disconnect", async () => {
       await auth.disconnect();
       await managedFolder.clearCache();
+      await localState.setExplicitlyDisconnected(true);
       return createSafeDriveSetupResult({
         configured: auth.configuration().configured,
         connected: false,

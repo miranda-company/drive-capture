@@ -322,25 +322,47 @@ tests/
   canvas-stitcher.test.js
 ```
 
-### Phase 3B checkpoint: Google OAuth and managed-folder setup
+### Phase 3B.1 checkpoint: configured OAuth, managed-folder setup, and persistent Disconnect
 
-**Status:** Phase 3B implementation is complete and automated verification passes. The OAuth client remains unconfigured because the manifest retains the recognizable placeholder. Chrome OAuth consent was not tested and no real managed Drive folder was created. Folder validation, discovery, creation, renaming, reconnection, and account-change behavior remain pending manual verification. Screenshot upload is not implemented. Phase 3A browser verification and Phase 2E real-page verification also remain pending.
+**Status:** Phase 3B.1 implementation and automated verification are complete. A real Chrome Extension OAuth client is configured for the current extension ID. Explicit connection, managed-folder creation, cached validation, folder rename preservation, persistent local Disconnect, and reconnect without duplication were manually verified in Chrome. Screenshot upload is not implemented. Phase 3A browser verification and Phase 2E real-page verification remain pending.
 
 Completed:
 
 - Pure validation for missing, placeholder, malformed, and plausible Chrome Extension OAuth client IDs plus the exact single `drive.file` scope.
 - Non-interactive derived status and an explicit interactive Connect path, both service-worker-only.
 - Transient token lifecycle, scope confirmation, one invalidation/non-interactive retry after `401`, explicit cached-token clearing, and account-change cache clearing.
+- Persistent local explicit-disconnect state that suppresses non-interactive token and Drive requests until the user selects Connect; cancelled or failed Connect restores that state, and account changes do not clear it.
 - A fixed JSON-only Drive client with three metadata request shapes: get a cached folder, list marked folders, and create the managed folder.
 - Validated local folder cache containing only `{ folderId, schemaVersion }`.
 - Marker-authoritative validation, rename support, bounded marker discovery, deterministic duplicate selection, and metadata-only creation.
 - Shared-lock exclusion between Drive mutations and capture jobs.
 - Safe popup status with no token, raw ID, raw Google error, or implication that screenshot upload is available.
+- Real OAuth client configuration bound to the current Chrome extension ID; a changed extension ID requires a matching OAuth client configuration.
+
+Manually verified in Chrome:
+
+- OAuth configuration recognition without an automatic consent prompt during popup initialization.
+- Explicit interactive connection and the resulting Connected status.
+- Managed-folder creation/preparation with one empty folder in My Drive.
+- Cached validation of the existing folder after reopening the popup.
+- Recognition of the renamed `DriveCapture Test` folder without renaming it back.
+- Persistent local Disconnect without deleting or modifying the Drive folder or silently reconnecting.
+- Explicit reconnect that reused the renamed marked folder without creating a duplicate.
+- No screenshot or other file upload.
+
+Manual verification still pending:
+
+- Marker-based rediscovery after manually clearing the local folder cache.
+- Trashed-folder lifecycle and replacement behavior.
+- Account switching, disabled Drive API, and non-test-user failure behavior.
+- Detailed Chrome storage, service-worker, popup, and Network inspection.
+- Local screenshot-capture regression after OAuth setup.
+- Phase 3A browser acceptance and Phase 2E real-page overlay acceptance.
 
 Not implemented:
 
 - Screenshot, media, multipart, or resumable upload; download; sharing; permissions management; cloud screenshot persistence; or horizontal capture.
-- A real OAuth client ID or completed Chrome/Drive manual verification.
+- The remaining Chrome/Drive edge-case verification listed above.
 
 The Phase 3B folder is preparation for a later upload phase. Google Drive integration is not complete.
 
@@ -348,18 +370,19 @@ The Phase 3B folder is preparation for a later upload phase. Google Drive integr
 
 ### Objective
 
-Complete real-client configuration and manually accept the Phase 3B authentication lifecycle before adding any upload token handoff.
+Complete the remaining Phase 3B.1 authentication and folder-lifecycle edge-case verification before adding any upload token handoff.
 
 ### Implementation tasks
 
-- Complete Google Cloud consent-screen and Chrome-extension OAuth client configuration.
-- Replace the manifest client-ID placeholder while keeping `drive.file` as the only scope.
+- Maintain the Google Cloud consent-screen and Chrome-extension OAuth client configuration for the current extension ID.
+- If the extension ID changes, configure the matching Chrome Extension OAuth client while keeping `drive.file` as the only scope.
 - Request a cached token non-interactively when an authorized user starts an operation.
 - If no valid grant exists, request interactively only from the explicit user action flow.
 - Keep access tokens in transient memory only; prohibit storage and token logging.
 - On a Drive `401`, call `chrome.identity.removeCachedAuthToken()`, request a fresh token, and retry the failed operation once.
 - Send a short-lived token to the offscreen document only when it needs to perform the Drive request; receive only serializable success metadata or error details in return.
-- Implement disconnect/logout by removing cached tokens and, if offered, clearly distinguish local cache removal from remote grant revocation.
+- Keep Disconnect as a persistent local DriveCapture disconnection: clear cached tokens and folder state, block silent token reacquisition until explicit Connect, and clearly distinguish this from remote grant revocation.
+- Consider Google-level authorization revocation as separate future work; it is not part of the local Disconnect behavior.
 - Map canceled consent, invalid client, revoked access, offline state, and account errors to user-facing authentication states.
 - Add mocks for token success, denial, invalidation, and one-time refresh behavior.
 
@@ -370,7 +393,7 @@ Complete real-client configuration and manually accept the Phase 3B authenticati
 - Exactly one token invalidation and refresh occurs after `401`; repeated `401` fails clearly.
 - No access token appears in storage, normal logs, errors, or telemetry.
 - The offscreen document clears its token reference after the upload attempt and never stores or logs it.
-- Disconnect clears Chrome's cached token and accurately explains whether Google consent remains granted.
+- Disconnect persists across popup closure, performs no non-interactive token or Drive request while active, and accurately explains that Google consent may remain granted.
 - The extension requests `drive.file` and no broader Drive scope.
 
 ### Major risks
@@ -485,7 +508,7 @@ Make configuration and progress understandable, accessible, and review-ready wit
 
 ### Acceptance criteria
 
-- Portable options validate and persist JPEG quality and capture delay through `chrome.storage.sync`; the managed folder ID remains in `chrome.storage.local`.
+- Portable options validate and persist JPEG quality and capture delay through `chrome.storage.sync`; the managed folder ID and explicit-disconnect Boolean remain in `chrome.storage.local`.
 - Folder status and recreation outcomes are accessible and understandable without requiring users to copy an ID.
 - Invalid quality values and delays receive inline accessible feedback.
 - Popup progress is understandable to screen-reader and keyboard-only users.

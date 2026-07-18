@@ -43,6 +43,7 @@ export const DRIVE_DISCOVERY_PAGE_SIZE = 50;
 export const STORAGE_KEYS = Object.freeze({
   ACTIVE_JOB: "activeCaptureJob",
   MANAGED_DRIVE_FOLDER_ID: "managedDriveFolderId",
+  DRIVE_EXPLICITLY_DISCONNECTED: "driveExplicitlyDisconnected",
   JPEG_QUALITY: "jpegQuality",
   CAPTURE_DELAY_MS: "captureDelayMs"
 });

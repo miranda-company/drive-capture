@@ -28,7 +28,10 @@ import {
   resolveStoredJpegQuality
 } from "../shared/output-settings.js";
 import { createAutomaticOutputFilename } from "../shared/output-filename.js";
-import { formatDriveStatus } from "../shared/google-drive.js";
+import {
+  formatDriveStatus,
+  getDriveActionAvailability
+} from "../shared/google-drive.js";
 
 const workerStatus = document.querySelector("#worker-status");
 const liveStatus = document.querySelector("#live-status");
@@ -112,10 +115,10 @@ function setBusy(isBusy) {
   suppressOverlaysOption.disabled = isBusy;
   outputFilenameInput.disabled = isBusy;
   jpegQualitySelect.disabled = isBusy;
-  driveConnectButton.disabled = isBusy || !lastDriveSetupResult?.configured ||
-    lastDriveSetupResult?.connected;
-  driveCheckFolderButton.disabled = isBusy || !lastDriveSetupResult?.connected;
-  driveDisconnectButton.disabled = isBusy || !lastDriveSetupResult?.connected;
+  const driveActions = getDriveActionAvailability(lastDriveSetupResult);
+  driveConnectButton.disabled = isBusy || !driveActions.connect;
+  driveCheckFolderButton.disabled = isBusy || !driveActions.checkFolder;
+  driveDisconnectButton.disabled = isBusy || !driveActions.disconnect;
 }
 
 function showDriveSetupResult(result) {
@@ -125,9 +128,10 @@ function showDriveSetupResult(result) {
   driveConnection.textContent = display.connection;
   driveFolder.textContent = display.folder;
   driveOutcome.textContent = display.outcome;
-  driveConnectButton.disabled = !result.configured || result.connected;
-  driveCheckFolderButton.disabled = !result.configured || !result.connected;
-  driveDisconnectButton.disabled = !result.configured || !result.connected;
+  const driveActions = getDriveActionAvailability(result);
+  driveConnectButton.disabled = !driveActions.connect;
+  driveCheckFolderButton.disabled = !driveActions.checkFolder;
+  driveDisconnectButton.disabled = !driveActions.disconnect;
 }
 
 async function runDriveSetupAction(type, { busy = true } = {}) {

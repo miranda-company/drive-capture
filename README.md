@@ -2,21 +2,22 @@
 
 DriveCapture is a planned Manifest V3 Chrome extension that will capture a high-resolution, full-page image of the active HTTP or HTTPS page and upload the resulting JPEG to a dedicated Google Drive folder created and managed by the extension.
 
-Phases 2A through 2E, 3A, and 3B are implemented on top of the Phase 1 shell. DriveCapture can create and validate a local full-page JPEG and now includes a service-worker-only Google OAuth and managed-folder setup workflow. The manifest still contains the OAuth placeholder, so connection is intentionally reported as not configured until a real Chrome Extension client ID is supplied. Screenshot upload remains unimplemented.
+Phases 2A through 2E, 3A, 3B, and the Phase 3B.1 OAuth finalization are implemented on top of the Phase 1 shell. DriveCapture can create and validate a local full-page JPEG and includes a service-worker-only Google OAuth and managed-folder setup workflow. The manifest contains the configured Chrome Extension OAuth client ID for the current extension ID. Screenshot upload remains unimplemented.
 
-## Current Phase 3B Google Drive setup
+## Current Phase 3B.1 Google Drive setup
 
-- Popup opening performs only `chrome.identity.getAuthToken({ interactive: false })`. It never prompts, creates a folder, or stores a connection Boolean.
-- **Connect Google Drive** is the only interactive authorization path. With the current placeholder it remains disabled and no token request is made.
+- Popup opening first reads the local explicit-disconnect preference. While that preference is active, it reports **Not connected** without calling `getAuthToken()`, contacting Google Drive, or checking the managed folder. Otherwise it may perform only `chrome.identity.getAuthToken({ interactive: false })`; it never prompts or creates a folder.
+- **Connect Google Drive** is the only interactive authorization path and the only action that clears an explicit local disconnect. If authorization is cancelled or setup fails, DriveCapture restores the local disconnect so reopening the popup cannot silently reconnect.
+- The configured OAuth client is bound to the current unpacked Chrome extension ID. Moving or re-keying the extension can change that ID and requires a matching Chrome Extension OAuth client configuration.
 - The manifest requests exactly `https://www.googleapis.com/auth/drive.file`. This lets DriveCapture work with files/folders it creates or the user explicitly opens with it; it does not grant general Drive browsing access.
 - Access tokens exist only in service-worker memory. They are never stored, logged, returned to the popup, or sent to offscreen. A Drive `401` invalidates once, obtains one non-interactive replacement, and retries once.
 - Folder identity is the private `drivecaptureManaged=true` and `drivecaptureSchema=1` marker, not the visible name. A valid renamed folder remains valid.
 - The worker validates a cached local `{ folderId, schemaVersion: 1 }`, otherwise searches only marked folders with bounded pagination, chooses the oldest valid writable folder deterministically, or creates one metadata-only `DriveCapture` folder.
-- Only the folder cache record uses `chrome.storage.local`. Duplicate marked folders are reported as a count and left unchanged.
-- **Disconnect** clears cached Chrome tokens and the local folder record. It does not revoke Google consent, delete or modify the Drive folder, or perform a Drive request afterward.
-- Drive setup operations share the session-backed job lock with captures. Account changes clear the folder cache without storing account identity or prompting.
+- `chrome.storage.local` contains only the folder cache record and, after an explicit Disconnect, the Boolean `driveExplicitlyDisconnected: true`. Duplicate marked folders are reported as a count and left unchanged.
+- **Disconnect** is a persistent local DriveCapture disconnection. Under the shared lock it clears cached Chrome tokens and the local folder record, then stores the explicit-disconnect preference. It does not revoke the OAuth grant in the user's Google Account, delete or modify the Drive folder, or perform a Drive request afterward. Google-level authorization revocation is not implemented.
+- Drive setup operations share the session-backed job lock with captures. Account changes clear the folder cache without storing account identity or prompting, and do not clear the explicit-disconnect preference.
 - Phase 3B performs only three fixed Drive metadata request shapes: get folder, list marked folders, and create folder. There are no upload endpoints, binary bodies, screenshot requests, downloads, sharing, or permissions management.
-- Phase 3B implementation is complete and automated verification passes, but the OAuth client remains unconfigured. Chrome OAuth consent was not tested and no real managed Drive folder was created. Folder validation, discovery, creation, renaming, reconnection, and account-change behavior remain pending manual verification. Screenshot upload is not implemented. Phase 3A browser acceptance and Phase 2E real-page overlay verification also remain pending.
+- Phase 3B.1 implementation and automated verification are complete. Explicit authorization, managed-folder creation, cached validation, rename preservation, persistent Disconnect, and reconnect without duplication were manually verified in Chrome. Marker rediscovery after manual cache clearing, trashed-folder handling, account switching, failure scenarios, detailed storage/network/console inspection, Phase 3A browser acceptance, and Phase 2E real-page overlay acceptance remain pending. Screenshot upload is not implemented.
 
 ## Current Phase 3A output configuration
 
@@ -129,7 +130,7 @@ The popup preserves every earlier capture control and adds compact Drive configu
 
 ### Manifest V3 service worker
 
-The service worker coordinates all workflows through the shared session-backed lock. It is the only context that acquires OAuth tokens, builds authorization headers, performs the three fixed Drive metadata requests, and reads/writes the local folder cache. Canvas and Blob APIs remain absent from the worker.
+The service worker coordinates all workflows through the shared session-backed lock. It is the only context that acquires OAuth tokens, builds authorization headers, performs the three fixed Drive metadata requests, and reads/writes the local folder cache and explicit-disconnect preference. Canvas and Blob APIs remain absent from the worker.
 
 In the future upload pipeline, the worker will obtain OAuth tokens and send short-lived tokens plus JSON metadata to the offscreen document. It will never receive the final stitched JPEG Blob.
 
@@ -164,7 +165,7 @@ The worker must guard this call with `chrome.runtime.getContexts()` and tolerate
 
 ### Google Drive client
 
-The Phase 3B service-worker client supports JSON metadata only: cached-folder validation, bounded marked-folder discovery, and managed-folder creation. It creates a folder named `DriveCapture` with MIME type `application/vnd.google-apps.folder` and authoritative `appProperties`, then stores only its ID and schema version in `chrome.storage.local`.
+The Phase 3B service-worker client supports JSON metadata only: cached-folder validation, bounded marked-folder discovery, and managed-folder creation. It creates a folder named `DriveCapture` with MIME type `application/vnd.google-apps.folder` and authoritative `appProperties`, then stores its ID and schema version in `chrome.storage.local`. The only other local Drive state is the Boolean explicit-disconnect preference.
 
 The metadata client validates the cached folder and accepts user renames. Missing, trashed, unmarked, non-folder, or unwritable items are never modified; explicit setup continues to bounded marker discovery and, when necessary, creates one replacement. Google Picker remains a later enhancement.
 
@@ -190,7 +191,7 @@ The scaffold intentionally avoids `<all_urls>`. It also does not request the opt
 | `activeTab` | Grants temporary access to the current page after the user invokes the extension. |
 | `scripting` | Injects the local Phase 2B measurement and controlled-scrolling controller after an explicit user action. |
 | `identity` | Acquires and clears transient Google OAuth tokens only in the Phase 3B service worker. |
-| `storage` | Stores the managed folder ID locally, portable preferences in sync storage, and the small active-job lock/metadata in session storage. |
+| `storage` | Stores the managed folder ID and explicit-disconnect Boolean locally, portable preferences in sync storage, and the small active-job lock/metadata in session storage. |
 | `offscreen` | Hosts the Phase 2C decoder and Phase 2D DOM Canvas, Blob encoding, and temporary result lifecycle. |
 | `https://www.googleapis.com/*` | Allows direct requests to Google Drive API endpoints. |
 
@@ -244,7 +245,7 @@ If the extension ID changes, update the Chrome-extension OAuth client configurat
 4. Choose the DriveCapture project directory.
 5. Open the extension's details page and note its extension ID for OAuth configuration.
 
-The placeholder OAuth client ID remains deliberately preserved. Phase 3B detects it, reports `OAUTH_NOT_CONFIGURED`, disables interactive connection, and makes no token request. Replace it only with the explicitly provisioned client described above.
+The manifest contains the configured Chrome Extension OAuth client ID for this development extension ID. If the extension ID changes, create or select a matching Chrome Extension OAuth client in Google Cloud, update `manifest.json`, and reload the extension. DriveCapture still detects a missing, placeholder, or malformed client configuration and makes no token request in that state.
 
 ## Reloading after changes
 
@@ -330,19 +331,42 @@ Phase 3A implementation and automated coverage are complete, but no Phase 3A Chr
 7. Inspect extension storage, worker/offscreen consoles, and network activity for stale locks, screenshots, full URLs, filename input, Blob URLs, external requests, or unexpected errors.
 8. Confirm a completed/failed operation leaves no stale job lock. Do not mark Phase 2E visual or DOM-restoration scenarios complete unless they are separately exercised.
 
-## Phase 3B manual Chrome verification
+## Phase 3B.1 manual Chrome verification
 
-No OAuth or Drive success is claimed. A real OAuth client was not supplied and Chrome was not used. After completing the Google Cloud steps:
+The following results record only the Chrome checks reported as completed for Phase 3B.1.
 
-1. Reload DriveCapture and confirm popup opening performs no interactive prompt.
-2. Connect explicitly and confirm consent requests only `drive.file`.
-3. Confirm exactly one marked `DriveCapture` folder is created and contains no screenshot.
-4. Reopen the popup and check the folder without a prompt; rename it and verify the marker-based cached validation still accepts it.
-5. Clear the local cache and verify bounded marker discovery finds the renamed folder without creating a duplicate.
-6. Disconnect and confirm the folder remains in Drive, no Drive request follows token clearing, and reconnecting reuses the folder.
-7. Trash the folder and explicitly check again; confirm a replacement is created and no raw folder ID appears in the popup.
-8. Inspect local/sync/session storage, worker/popup consoles, and network traffic for tokens, account data, raw errors, screenshot bytes, upload endpoints, or stale locks.
-9. Re-run local capture/stitching regressions. Keep Phase 3A and Phase 2E manual acceptance pending unless separately completed.
+| Manual check | Result |
+| --- | --- |
+| OAuth configuration recognized by the popup | Passed |
+| Popup initialization caused no automatic consent prompt | Passed |
+| Explicit **Connect Google Drive** completed successfully | Passed |
+| Google Drive connection showed **Connected** | Passed |
+| **Check Drive folder** created or prepared one managed folder | Passed |
+| Managed folder existed in My Drive and was empty | Passed |
+| Closing and reopening the popup caused no consent prompt | Passed |
+| Cached-folder validation returned the existing managed folder | Passed |
+| Renaming the folder to `DriveCapture Test` preserved recognition | Passed |
+| DriveCapture did not rename the folder back | Passed |
+| Disconnect cleared the local connected state | Passed |
+| Disconnect did not delete or modify the Drive folder | Passed |
+| Explicit disconnected state persisted after popup closure and reopening | Passed |
+| No non-interactive silent reconnection occurred after explicit Disconnect | Passed |
+| Explicit reconnect succeeded | Passed |
+| Reconnect reused the existing renamed folder | Passed |
+| No duplicate managed folder was created | Passed |
+| No screenshot or other file was uploaded | Passed |
+| Manual folder-cache clearing followed by marker-based rediscovery | Pending |
+| Trashed-folder lifecycle | Pending |
+| Account switching | Pending |
+| Disabled Drive API failure | Pending |
+| Non-test-user failure | Pending |
+| Detailed Chrome storage inspection | Pending |
+| Detailed service-worker, popup, and Network inspection | Pending |
+| Local screenshot-capture regression after OAuth setup | Pending |
+| Phase 2E real-page overlay acceptance | Pending |
+| Phase 3A browser acceptance | Pending |
+
+Disconnect is a persistent local DriveCapture state, not Google-account revocation. The existing OAuth grant may remain in the user’s Google Account; Google-level authorization revocation is not implemented. Explicit Connect clears the local disconnected state. The managed folder survives Disconnect, and a renamed folder remains valid because its private `appProperties` marker—not its visible name—defines its identity.
 
 ## Future implementation testing plan
 
@@ -376,7 +400,8 @@ Once the relevant roadmap phase is implemented:
 - All executable JavaScript is packaged locally; remote scripts, `eval`, and `new Function` are prohibited.
 - Logs must contain operational metadata only and must exclude tokens and screenshot contents.
 - `chrome.storage.sync` contains only portable, non-secret preferences such as JPEG quality and capture delay.
-- The managed Drive folder ID is installation-specific and stored in `chrome.storage.local`.
+- `chrome.storage.local` contains only the installation-specific managed-folder cache and the Boolean explicit-disconnect preference. It contains no token, account ID, email, authorization header, or OAuth response.
+- Disconnect is local to DriveCapture and persists until explicit reconnection. The Google OAuth grant may remain in the user's Google Account because Google-level revocation is not implemented.
 - `chrome.storage.session` contains only a capture lock and small serializable job metadata, never screenshots, data URLs, tokens, Blobs, or upload-session URLs.
 
 ## Troubleshooting
@@ -408,4 +433,4 @@ DriveCapture accepts ordinary HTTP and HTTPS pages. It rejects browser-internal 
 
 ## Project status
 
-Phase 3B service-worker-only OAuth handling and managed Drive folder setup are implemented with automated coverage, but the manifest placeholder prevents real connection until a user-supplied Chrome Extension OAuth client ID is configured. No Phase 3B Chrome or real-folder success is claimed. Phase 3A browser verification and Phase 2E real-page overlay verification remain pending. Screenshot upload, downloads, sharing, and cloud screenshot persistence remain unimplemented.
+Phase 3B.1 service-worker-only OAuth handling, managed Drive folder setup, and persistent local Disconnect are implemented with automated coverage. The real OAuth client and core connection/folder lifecycle were manually verified in Chrome, including rename preservation and reconnect without duplication. The explicitly listed Phase 3B.1 edge cases, Phase 3A browser verification, and Phase 2E real-page overlay verification remain pending. Screenshot upload, downloads, sharing, Google-level OAuth revocation, and cloud screenshot persistence remain unimplemented.

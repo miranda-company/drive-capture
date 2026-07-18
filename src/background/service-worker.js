@@ -30,6 +30,7 @@ import { createGoogleAuth } from "./google-auth.js";
 import { createGoogleDriveClient } from "./google-drive-client.js";
 import { createManagedDriveFolder } from "./managed-drive-folder.js";
 import { createDriveSetupCoordinator } from "./drive-setup-coordinator.js";
+import { createDriveLocalState } from "./drive-local-state.js";
 
 const jobState = createJobState();
 const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
@@ -57,10 +58,12 @@ const fullPageCapture = createFullPageCaptureCoordinator({
 const googleAuth = createGoogleAuth();
 const googleDriveClient = createGoogleDriveClient();
 const managedDriveFolder = createManagedDriveFolder();
+const driveLocalState = createDriveLocalState();
 const driveSetup = createDriveSetupCoordinator({
   auth: googleAuth,
   driveClient: googleDriveClient,
   managedFolder: managedDriveFolder,
+  localState: driveLocalState,
   jobState,
   onProgress: (payload) => notifyDriveSetupProgress(payload)
 });

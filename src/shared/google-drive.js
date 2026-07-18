@@ -141,3 +141,13 @@ export function formatDriveStatus(result) {
     outcome: `Drive connected. Uploading screenshots is not implemented yet.${duplicate}`
   });
 }
+
+export function getDriveActionAvailability(result) {
+  const configured = Boolean(result?.configured);
+  const connected = Boolean(result?.connected);
+  return Object.freeze({
+    connect: configured && !connected,
+    checkFolder: configured && connected,
+    disconnect: configured && connected
+  });
+}

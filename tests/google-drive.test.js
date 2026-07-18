@@ -5,6 +5,7 @@ import { DRIVE_FILE_SCOPE } from "../src/shared/constants.js";
 import {
   createSafeDriveSetupResult,
   formatDriveStatus,
+  getDriveActionAvailability,
   OAUTH_CLIENT_ID_PLACEHOLDER,
   selectManagedFolder,
   validateFolderCacheRecord,
@@ -94,4 +95,18 @@ test("safe result and popup formatting never expose folder IDs", () => {
   assert.match(display.outcome, /Uploading screenshots is not implemented/u);
   assert.match(display.outcome, /2 additional/u);
   assert.equal(JSON.stringify(display).includes("folderId"), false);
+});
+
+test("Drive folder actions remain disabled for a locally disconnected status", () => {
+  const actions = getDriveActionAvailability(createSafeDriveSetupResult({
+    configured: true,
+    connected: false,
+    status: "not-connected"
+  }));
+
+  assert.deepEqual(actions, {
+    connect: true,
+    checkFolder: false,
+    disconnect: false
+  });
 });
