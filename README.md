@@ -2,7 +2,21 @@
 
 DriveCapture is a planned Manifest V3 Chrome extension that will capture a high-resolution, full-page image of the active HTTP or HTTPS page and upload the resulting JPEG to a dedicated Google Drive folder created and managed by the extension.
 
-Phases 2A through 2E, 3A, 3B, and the Phase 3B.1 OAuth finalization are implemented on top of the Phase 1 shell. DriveCapture can create and validate a local full-page JPEG and includes a service-worker-only Google OAuth and managed-folder setup workflow. The manifest contains the configured Chrome Extension OAuth client ID for the current extension ID. Screenshot upload remains unimplemented.
+Phases 2A through 2E, 3A, 3B, 3B.1, and the Phase 3C upload implementation are built on top of the Phase 1 shell. DriveCapture can create and validate a local full-page JPEG, prepare its managed Drive folder, and upload the reviewed offscreen-owned Blob through an explicit resumable workflow. Phase 3C has automated coverage but has not yet been manually accepted in Chrome with a real JPEG.
+
+## Current Phase 3C explicit Drive upload
+
+- Upload never starts automatically. The user must capture locally, review the preview, connect Google Drive, validate the managed folder, and select **Save to Google Drive**.
+- Before session creation, the worker obtains trusted result metadata from offscreen and validates the result ID, retained Blob, preview lifecycle, JPEG MIME/signature/size, sanitized filename, positive dimensions, and duplicate-upload state. Popup values are not trusted.
+- The service worker owns OAuth and the internal folder ID. It validates or prepares the managed folder and uses its transient token only for one authenticated resumable-session `POST`.
+- The offscreen document never receives a token or Authorization header. It receives only the result ID, validated session URI, expected Blob size, and `image/jpeg`, then sends the existing Blob in one `PUT` without regenerating or Base64-encoding it.
+- Every upload uses a resumable session, regardless of size. Multipart, simple media upload, `FormData`, and multi-chunk continuation are not implemented.
+- Network or `5xx` uncertainty triggers exactly one empty status-query `PUT` against the same session. An incomplete `308` or expired `404` fails safely and never starts another session automatically.
+- Cancellation aborts the offscreen request, clears the session-URI reference, preserves the local Blob and preview, releases the shared job lock, and permits an explicit retry.
+- A successful result is transiently marked against the current local capture, preventing accidental repeat upload. A new capture or preview clear resets local upload metadata without deleting any Drive file.
+- The popup receives only safe filename, MIME, size, creation/upload time, checksum availability, and a validated Google Drive view link. It never receives a token, folder/file ID field, session URI, Blob, screenshot bytes, Authorization header, or raw response.
+- `chrome.storage.session` may hold only the safe current upload state, current result ID, progress, safe error, and safe final result. There is no upload history; session URIs, file IDs, tokens, Blobs, data URLs, preview URLs, and raw responses are prohibited.
+- Phase 3C implementation and automated verification are complete. Manual Chrome verification and a real JPEG upload remain pending, so production upload acceptance is not claimed. Phase 3A browser acceptance and Phase 2E real-page overlay acceptance also remain pending.
 
 ## Current Phase 3B.1 Google Drive setup
 
@@ -16,8 +30,8 @@ Phases 2A through 2E, 3A, 3B, and the Phase 3B.1 OAuth finalization are implemen
 - `chrome.storage.local` contains only the folder cache record and, after an explicit Disconnect, the Boolean `driveExplicitlyDisconnected: true`. Duplicate marked folders are reported as a count and left unchanged.
 - **Disconnect** is a persistent local DriveCapture disconnection. Under the shared lock it clears cached Chrome tokens and the local folder record, then stores the explicit-disconnect preference. It does not revoke the OAuth grant in the user's Google Account, delete or modify the Drive folder, or perform a Drive request afterward. Google-level authorization revocation is not implemented.
 - Drive setup operations share the session-backed job lock with captures. Account changes clear the folder cache without storing account identity or prompting, and do not clear the explicit-disconnect preference.
-- Phase 3B performs only three fixed Drive metadata request shapes: get folder, list marked folders, and create folder. There are no upload endpoints, binary bodies, screenshot requests, downloads, sharing, or permissions management.
-- Phase 3B.1 implementation and automated verification are complete. Explicit authorization, managed-folder creation, cached validation, rename preservation, persistent Disconnect, and reconnect without duplication were manually verified in Chrome. Marker rediscovery after manual cache clearing, trashed-folder handling, account switching, failure scenarios, detailed storage/network/console inspection, Phase 3A browser acceptance, and Phase 2E real-page overlay acceptance remain pending. Screenshot upload is not implemented.
+- The Phase 3B folder metadata client remains limited to three request shapes: get folder, list marked folders, and create folder. Phase 3C adds a separate, fixed resumable-session initializer; neither client implements downloads, sharing, or permissions management.
+- Phase 3B.1 implementation and automated verification are complete. Explicit authorization, managed-folder creation, cached validation, rename preservation, persistent Disconnect, and reconnect without duplication were manually verified in Chrome. Marker rediscovery after manual cache clearing, trashed-folder handling, account switching, and failure scenarios remain pending.
 
 ## Current Phase 3A output configuration
 
@@ -52,7 +66,7 @@ Phases 2A through 2E, 3A, 3B, and the Phase 3B.1 OAuth finalization are implemen
 - Only one completed result is retained. Starting another capture or selecting **Clear full-page preview** revokes the old URL and releases the Blob and Canvas. The offscreen document stays alive while a preview exists and closes after explicit clearing or any failed capture.
 - Conservative pre-allocation limits are 16,384 px wide, 32,767 px high, 100,000,000 pixels, and 400,000,000 estimated RGBA bytes. Unsafe pages fail rather than being truncated.
 - With Phase 2E suppression disabled, fixed and sticky elements may repeat exactly as in Phase 2D.
-- The result is local and temporary. No screenshot is written to Chrome storage, uploaded, downloaded, fetched, or sent to an external service.
+- The result remains local and temporary unless the user explicitly selects **Save to Google Drive**. It is never written to Chrome storage or downloaded.
 
 ## Current Phase 2C diagnostic
 
@@ -95,10 +109,11 @@ The intended MVP workflow is:
 2. The user clicks the DriveCapture toolbar action and starts capture explicitly.
 3. The extension validates the active tab, measures the page, and captures each visible viewport while scrolling.
 4. An offscreen document incrementally decodes and stitches each capture, then encodes and retains the JPEG Blob.
-5. Chrome requests Google authorization if needed.
-6. On first upload, DriveCapture creates a Drive folder named `DriveCapture`; later uploads validate and reuse its locally stored ID.
-7. The service worker sends a short-lived OAuth token and JSON file metadata to the offscreen document, which uploads its Blob directly to Google Drive.
-8. The offscreen document returns only JSON-serializable Drive metadata, and the popup reports success with a link to the created file or shows a useful error.
+5. The user connects Google Drive explicitly if needed and validates the managed folder.
+6. The user selects **Save to Google Drive**; capture completion alone never starts an upload.
+7. The worker uses a transient OAuth token to initialize one resumable session for the validated filename, size, MIME, and internal folder ID.
+8. The worker sends only the session URI and non-secret Blob expectations to offscreen; offscreen uploads its retained Blob directly and returns expected JSON metadata for worker validation.
+9. The popup reports a safe result and exposes **Open in Google Drive** only as an explicit link click.
 
 The popup will prevent overlapping capture jobs. Interactive OAuth will only begin in response to the user's capture or sign-in action.
 
@@ -115,24 +130,23 @@ The popup will prevent overlapping capture jobs. Interactive OAuth will only beg
 - Safe filenames in the form `DriveCapture_<page-label>_<local-timestamp>.jpg`, capped at 140 Unicode code points, are implemented in Phase 3A.
 - Google OAuth through `chrome.identity` with the narrow `drive.file` scope.
 - Automatic creation and reuse of a dedicated `DriveCapture` folder, with its ID stored in `chrome.storage.local`.
-- Multipart upload for JPEGs up to 5 MB and resumable upload above 5 MB.
-- One token-refresh retry after a `401`, plus bounded exponential backoff for recoverable upload failures.
+- Explicit one-session resumable upload for every JPEG is implemented in Phase 3C.
+- One token invalidation/non-interactive refresh retry is allowed only while creating the upload session after a `401`.
+- One same-session status query handles an uncertain network or `5xx` outcome; no automatic second session or multi-chunk continuation exists.
 - Clear failures for unsupported pages, navigation during capture, inaccessible folders, oversized canvases, and memory limits.
 - A capture-job lock and small serializable recovery metadata in `chrome.storage.session`, without persisting screenshot data or credentials.
 
 ## Architecture
 
-DriveCapture separates privileged coordination from page interaction and DOM-based image processing. Phase 3B adds service-worker-only authorization and Drive metadata setup; upload remains future work.
+DriveCapture separates privileged coordination from page interaction and DOM-based image processing. Phase 3C adds an explicit resumable upload while preserving the token/Blob boundary.
 
 ### Popup
 
-The popup preserves every earlier capture control and adds compact Drive configuration, connection, managed-folder, and safe outcome states. It never receives access tokens or raw folder IDs. Only explicit **Connect Google Drive** can request interactive authorization.
+The popup preserves every earlier capture control and adds compact Drive configuration, connection, managed-folder, upload prerequisites, progress, cancellation, and safe outcome states. It never receives access tokens, raw folder/file ID fields, upload-session URIs, or screenshot bytes. Only explicit **Connect Google Drive** can request interactive authorization, and only explicit **Save to Google Drive** starts upload.
 
 ### Manifest V3 service worker
 
-The service worker coordinates all workflows through the shared session-backed lock. It is the only context that acquires OAuth tokens, builds authorization headers, performs the three fixed Drive metadata requests, and reads/writes the local folder cache and explicit-disconnect preference. Canvas and Blob APIs remain absent from the worker.
-
-In the future upload pipeline, the worker will obtain OAuth tokens and send short-lived tokens plus JSON metadata to the offscreen document. It will never receive the final stitched JPEG Blob.
+The service worker coordinates all workflows through the shared session-backed lock. It is the only context that acquires OAuth tokens, builds Authorization headers, owns the internal folder ID, performs the three fixed folder metadata requests, and initializes the resumable upload session. It sends no token or Authorization header to offscreen and never receives the final stitched JPEG Blob.
 
 Service workers have no DOM or Canvas APIs, so stitching must not happen in the worker. Chrome runtime messages must be JSON-serializable; the design therefore does not attempt to send a Blob through `chrome.runtime` messaging.
 
@@ -148,7 +162,7 @@ The MVP will inject this module only after the action is invoked. It will not re
 
 The offscreen document supports both the unchanged Phase 2C decode diagnostic and a full-page stitching session. The stitching session creates one Canvas, decodes and draws one current segment, releases its `Image` before acknowledging, records small placement metadata, and encodes one final `image/jpeg` Blob at the validated per-session quality. It verifies only the Blob's two-byte start and end slices, retains no full Base64 representation of the result, and reports JSON-safe technical metadata. Result get/clear messages expose only serializable metadata and manage URL revocation and memory release.
 
-The Blob stays inside the offscreen document. Phase 3B sends no token or Drive request to offscreen and performs no upload. A later upload phase may add a narrowly bounded token handoff, but that contract is not implemented here.
+The Blob stays inside the offscreen document. Phase 3C gives offscreen only a strictly validated Google upload-session URI plus result ID, expected byte size, and JPEG MIME. Offscreen revalidates the retained result and session URI, sends the entire Blob once, performs at most one same-session uncertainty query, clears the URI reference, and keeps the preview available.
 
 Chrome 116 or later is required so the worker can call `chrome.runtime.getContexts()` before creating the offscreen document. Only one offscreen document should exist per extension profile. Planned creation contract:
 
@@ -169,7 +183,7 @@ The Phase 3B service-worker client supports JSON metadata only: cached-folder va
 
 The metadata client validates the cached folder and accepts user renames. Missing, trashed, unmarked, non-folder, or unwritable items are never modified; explicit setup continues to bounded marker discovery and, when necessary, creates one replacement. Google Picker remains a later enhancement.
 
-No upload client exists. The metadata client rejects unknown operations and has no `/upload` path, `uploadType`, binary body, Blob body, multipart body, or resumable-session handling.
+The separate Phase 3C session initializer has exactly one upload path: authenticated `POST https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable`. Its JSON metadata contains only the sanitized filename, JPEG MIME, internal parent ID, and DriveCapture screenshot markers. The only binary Drive request is offscreen's unauthenticated session `PUT`; multipart, sharing, permissions, download, and arbitrary Drive operations remain absent.
 
 ## Technology stack
 
@@ -190,9 +204,9 @@ The scaffold intentionally avoids `<all_urls>`. It also does not request the opt
 | --- | --- |
 | `activeTab` | Grants temporary access to the current page after the user invokes the extension. |
 | `scripting` | Injects the local Phase 2B measurement and controlled-scrolling controller after an explicit user action. |
-| `identity` | Acquires and clears transient Google OAuth tokens only in the Phase 3B service worker. |
-| `storage` | Stores the managed folder ID and explicit-disconnect Boolean locally, portable preferences in sync storage, and the small active-job lock/metadata in session storage. |
-| `offscreen` | Hosts the Phase 2C decoder and Phase 2D DOM Canvas, Blob encoding, and temporary result lifecycle. |
+| `identity` | Acquires and clears transient Google OAuth tokens only in the service worker, including upload-session initialization. |
+| `storage` | Stores the managed folder ID and explicit-disconnect Boolean locally, portable preferences in sync storage, and the small active-job/upload status in session storage. |
+| `offscreen` | Hosts image decoding, DOM Canvas, Blob encoding, preview lifecycle, and the session-URI Blob upload. |
 | `https://www.googleapis.com/*` | Allows direct requests to Google Drive API endpoints. |
 
 The OAuth scope is `https://www.googleapis.com/auth/drive.file`. It allows DriveCapture to work with files it creates or that the user explicitly opens with the app, without granting general access to all Drive files. The extension contains no OAuth client secret.
@@ -378,7 +392,7 @@ Once the relevant roadmap phase is implemented:
 4. Test a long page with lazy-loaded images and a sticky header.
 5. Verify capture calls remain at least 550 ms apart and the maximum capture limit stops unbounded pages.
 6. Try a protected URL such as `chrome://extensions` and confirm a human-readable rejection.
-7. Upload both a file at or below 5 MB and a file above 5 MB to exercise multipart and resumable paths.
+7. Upload both a smaller and larger JPEG to exercise the same one-Blob resumable path and cancellation where practical.
 8. Revoke or invalidate the token and verify exactly one refresh retry after a `401`.
 9. Delete or revoke access to the managed `DriveCapture` folder and verify the extension informs the user before creating and locally recording a replacement.
 10. Confirm each capture segment is acknowledged and released by the offscreen document before the next viewport is captured.
@@ -392,7 +406,7 @@ Once the relevant roadmap phase is implemented:
 - In Phase 2C, the worker and offscreen document hold only the current segment; its data URL and decoded image representation are released before the next capture, while the popup receives metadata only.
 - In Phase 3A, offscreen memory holds one Canvas, one currently decoding image, one validated final Blob, and one preview URL. The worker holds one current segment data URL only until its draw acknowledgement.
 - Screenshot data is never stored in `chrome.storage`, IndexedDB, Cache Storage, the filesystem, or logs.
-- Phase 2D screenshot bytes remain local. A future upload phase will send them only from offscreen to Google Drive.
+- Phase 3C sends the retained final Blob only from offscreen to its validated Google resumable-session URI and only after the explicit upload action.
 - The extension requests only `drive.file`, not full Drive access.
 - Access tokens are held in memory only as needed, never stored in `chrome.storage`, and never logged.
 - Resumable-session URLs are retained only in offscreen memory for the active upload and are never stored or logged.
@@ -402,7 +416,27 @@ Once the relevant roadmap phase is implemented:
 - `chrome.storage.sync` contains only portable, non-secret preferences such as JPEG quality and capture delay.
 - `chrome.storage.local` contains only the installation-specific managed-folder cache and the Boolean explicit-disconnect preference. It contains no token, account ID, email, authorization header, or OAuth response.
 - Disconnect is local to DriveCapture and persists until explicit reconnection. The Google OAuth grant may remain in the user's Google Account because Google-level revocation is not implemented.
-- `chrome.storage.session` contains only a capture lock and small serializable job metadata, never screenshots, data URLs, tokens, Blobs, or upload-session URLs.
+- `chrome.storage.session` contains only the shared job lock plus safe current upload progress/result metadata, never screenshots, data URLs, preview URLs, tokens, Blobs, raw file IDs, raw responses, or upload-session URLs.
+
+## Phase 3C manual Chrome verification
+
+Phase 3C has not yet been manually verified in Chrome, and no real JPEG upload is claimed. After reloading the unpacked extension:
+
+1. Connect Google Drive and validate the existing marked folder.
+2. Capture a long page locally and verify its preview, filename, MIME, size, dimensions, and JPEG signature.
+3. Confirm no upload starts after capture; select **Save to Google Drive** explicitly.
+4. Verify preparing, folder validation, session creation, uploading, and verification states appear.
+5. Confirm exactly one JPEG is added to the managed folder, with the expected filename and approximately matching size.
+6. Open the JPEG in Drive and verify it is visually valid; confirm the local preview remains.
+7. Select **Open in Google Drive** and confirm it opens the correct JPEG only after the click.
+8. Close and reopen the popup; confirm no upload restarts and the same result cannot be uploaded accidentally.
+9. Capture and upload a second page with a custom filename; confirm exactly one additional JPEG appears.
+10. Disconnect and confirm upload becomes unavailable while existing Drive files and the local preview remain; reconnect and confirm folder reuse.
+11. Inspect local, sync, and session storage plus worker/offscreen/popup consoles and Network activity for tokens, session URIs, screenshot bytes, raw IDs, raw responses, or stale locks.
+12. Confirm the network shows only the expected resumable-session `POST`, Blob `PUT`, and at most one uncertainty status `PUT`, with no sharing or permissions request.
+13. Test cancellation on a sufficiently large JPEG where practical and confirm the preview survives and an explicit retry is possible.
+
+Interrupted-network, timeout, `308`, expired-session `404`, disabled API, quota, rate-limit, permission, browser shutdown, account-switch, and other difficult failure cases remain pending until separately exercised. Phase 3A browser acceptance and Phase 2E real-page overlay acceptance also remain pending.
 
 ## Troubleshooting
 
@@ -433,4 +467,4 @@ DriveCapture accepts ordinary HTTP and HTTPS pages. It rejects browser-internal 
 
 ## Project status
 
-Phase 3B.1 service-worker-only OAuth handling, managed Drive folder setup, and persistent local Disconnect are implemented with automated coverage. The real OAuth client and core connection/folder lifecycle were manually verified in Chrome, including rename preservation and reconnect without duplication. The explicitly listed Phase 3B.1 edge cases, Phase 3A browser verification, and Phase 2E real-page overlay verification remain pending. Screenshot upload, downloads, sharing, Google-level OAuth revocation, and cloud screenshot persistence remain unimplemented.
+Phase 3C's explicit resumable upload implementation is complete with automated coverage, alongside the manually verified Phase 3B.1 OAuth/folder lifecycle. No real Phase 3C JPEG upload or Chrome success is claimed yet. Phase 3C manual acceptance, the remaining Phase 3B.1 edge cases, Phase 3A browser verification, and Phase 2E real-page overlay verification remain pending. Automatic upload, upload history, downloads, sharing, permissions management, Google-level OAuth revocation, horizontal capture, and multi-chunk continuation remain unimplemented.

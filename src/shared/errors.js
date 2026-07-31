@@ -63,6 +63,21 @@ export const ERROR_CODES = Object.freeze({
   DRIVE_FOLDER_CACHE_FAILED: "DRIVE_FOLDER_CACHE_FAILED",
   DRIVE_LOCAL_STATE_FAILED: "DRIVE_LOCAL_STATE_FAILED",
   DRIVE_SETUP_BUSY: "DRIVE_SETUP_BUSY",
+  UPLOAD_RESULT_UNAVAILABLE: "UPLOAD_RESULT_UNAVAILABLE",
+  UPLOAD_SESSION_INVALID: "UPLOAD_SESSION_INVALID",
+  UPLOAD_NETWORK_ERROR: "UPLOAD_NETWORK_ERROR",
+  UPLOAD_TIMEOUT: "UPLOAD_TIMEOUT",
+  UPLOAD_ABORTED: "UPLOAD_ABORTED",
+  UPLOAD_INCOMPLETE: "UPLOAD_INCOMPLETE",
+  UPLOAD_SESSION_EXPIRED: "UPLOAD_SESSION_EXPIRED",
+  UPLOAD_RATE_LIMITED: "UPLOAD_RATE_LIMITED",
+  UPLOAD_ACCESS_DENIED: "UPLOAD_ACCESS_DENIED",
+  UPLOAD_SERVICE_UNAVAILABLE: "UPLOAD_SERVICE_UNAVAILABLE",
+  UPLOAD_RESPONSE_INVALID: "UPLOAD_RESPONSE_INVALID",
+  UPLOAD_VALIDATION_FAILED: "UPLOAD_VALIDATION_FAILED",
+  UPLOAD_ALREADY_COMPLETED: "UPLOAD_ALREADY_COMPLETED",
+  UPLOAD_BUSY: "UPLOAD_BUSY",
+  UPLOAD_STATE_FAILED: "UPLOAD_STATE_FAILED",
   INTERNAL_ERROR: "INTERNAL_ERROR"
 });
 
@@ -129,6 +144,21 @@ const DEFAULT_MESSAGES = Object.freeze({
   [ERROR_CODES.DRIVE_FOLDER_CACHE_FAILED]: "The managed Drive folder cache could not be updated.",
   [ERROR_CODES.DRIVE_LOCAL_STATE_FAILED]: "DriveCapture could not update the local Drive connection state.",
   [ERROR_CODES.DRIVE_SETUP_BUSY]: "Another DriveCapture operation is already running.",
+  [ERROR_CODES.UPLOAD_RESULT_UNAVAILABLE]: "The local JPEG is no longer available. Capture it again before uploading.",
+  [ERROR_CODES.UPLOAD_SESSION_INVALID]: "Google Drive did not provide a valid secure upload session.",
+  [ERROR_CODES.UPLOAD_NETWORK_ERROR]: "The upload connection was interrupted.",
+  [ERROR_CODES.UPLOAD_TIMEOUT]: "The upload timed out.",
+  [ERROR_CODES.UPLOAD_ABORTED]: "The upload was cancelled.",
+  [ERROR_CODES.UPLOAD_INCOMPLETE]: "Google Drive has not completed the upload. Retry explicitly.",
+  [ERROR_CODES.UPLOAD_SESSION_EXPIRED]: "The Google Drive upload session expired. Retry explicitly.",
+  [ERROR_CODES.UPLOAD_RATE_LIMITED]: "Google Drive is temporarily rate limiting uploads.",
+  [ERROR_CODES.UPLOAD_ACCESS_DENIED]: "Google Drive denied the upload.",
+  [ERROR_CODES.UPLOAD_SERVICE_UNAVAILABLE]: "Google Drive is temporarily unavailable for uploads.",
+  [ERROR_CODES.UPLOAD_RESPONSE_INVALID]: "Google Drive returned an invalid upload response.",
+  [ERROR_CODES.UPLOAD_VALIDATION_FAILED]: "The uploaded file metadata could not be validated safely.",
+  [ERROR_CODES.UPLOAD_ALREADY_COMPLETED]: "This local JPEG has already been uploaded.",
+  [ERROR_CODES.UPLOAD_BUSY]: "Another DriveCapture operation is already running.",
+  [ERROR_CODES.UPLOAD_STATE_FAILED]: "DriveCapture could not update the safe upload status.",
   [ERROR_CODES.INTERNAL_ERROR]: "DriveCapture encountered an unexpected error."
 });
 

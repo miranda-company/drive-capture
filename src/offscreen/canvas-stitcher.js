@@ -100,6 +100,17 @@ export function createCanvasStitchSessionManager({
   let active = null;
   let completed = null;
 
+  function publicResult() {
+    if (!completed) return { available: false };
+    const {
+      canvas: _canvas,
+      blob: _blob,
+      uploaded: _uploaded,
+      ...metadata
+    } = completed;
+    return metadata;
+  }
+
   function clearResult() {
     let cleanupFailed = false;
     if (completed?.previewUrl) {
@@ -337,12 +348,12 @@ export function createCanvasStitchSessionManager({
         session.allocation.width / session.geometry.scale.x,
       scale: { ...session.geometry.scale },
       captureScale: { ...session.geometry.scale },
+      uploaded: false,
       canvas: session.canvas,
       blob
     };
     active = null;
-    const { canvas: _canvas, blob: _blob, ...metadata } = completed;
-    return metadata;
+    return publicResult();
   }
 
   function abort({ sessionId }) {
@@ -357,10 +368,58 @@ export function createCanvasStitchSessionManager({
   }
 
   function getResult() {
-    if (!completed) return { available: false };
-    const { canvas: _canvas, blob: _blob, ...metadata } = completed;
-    return metadata;
+    return publicResult();
   }
 
-  return Object.freeze({ start, draw, finish, abort, getResult, clearResult });
+  function getUploadReadiness({ resultId } = {}) {
+    if (!completed ||
+        (resultId !== undefined && resultId !== completed.resultId) ||
+        !completed.blob ||
+        completed.blob.size !== completed.blobSize ||
+        completed.blob.type !== "image/jpeg" ||
+        completed.validJpegSignature !== true ||
+        !completed.previewUrl) {
+      return { available: false };
+    }
+    return {
+      available: true,
+      resultId: completed.resultId,
+      previewUrl: completed.previewUrl,
+      filename: completed.filename,
+      filenameSource: completed.filenameSource,
+      mimeType: completed.mimeType,
+      blobSize: completed.blobSize,
+      encodedBytes: completed.encodedBytes,
+      pixelWidth: completed.pixelWidth,
+      pixelHeight: completed.pixelHeight,
+      validJpegSignature: completed.validJpegSignature,
+      uploaded: completed.uploaded
+    };
+  }
+
+  function getUploadSource(resultId) {
+    const readiness = getUploadReadiness({ resultId });
+    if (!readiness.available) {
+      throw createApplicationError({ code: ERROR_CODES.UPLOAD_RESULT_UNAVAILABLE });
+    }
+    return { blob: completed.blob, metadata: readiness };
+  }
+
+  function markUploaded({ resultId }) {
+    getUploadSource(resultId);
+    completed.uploaded = true;
+    return { resultId, uploaded: true };
+  }
+
+  return Object.freeze({
+    start,
+    draw,
+    finish,
+    abort,
+    getResult,
+    clearResult,
+    getUploadReadiness,
+    getUploadSource,
+    markUploaded
+  });
 }

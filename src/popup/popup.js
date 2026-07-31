@@ -32,6 +32,10 @@ import {
   formatDriveStatus,
   getDriveActionAvailability
 } from "../shared/google-drive.js";
+import {
+  createSafeUploadStatus,
+  validateSafeUploadStatus
+} from "../shared/drive-upload.js";
 
 const workerStatus = document.querySelector("#worker-status");
 const liveStatus = document.querySelector("#live-status");
@@ -72,6 +76,18 @@ const driveOutcome = document.querySelector("#drive-outcome");
 const driveConnectButton = document.querySelector("#drive-connect");
 const driveCheckFolderButton = document.querySelector("#drive-check-folder");
 const driveDisconnectButton = document.querySelector("#drive-disconnect");
+const uploadLocalReady = document.querySelector("#upload-local-ready");
+const uploadDriveReady = document.querySelector("#upload-drive-ready");
+const uploadFolderReady = document.querySelector("#upload-folder-ready");
+const uploadOutcome = document.querySelector("#upload-outcome");
+const driveUploadButton = document.querySelector("#drive-upload-start");
+const cancelDriveUploadButton = document.querySelector("#drive-upload-cancel");
+const driveUploadResult = document.querySelector("#drive-upload-result");
+const uploadedFilename = document.querySelector("#uploaded-filename");
+const uploadedSize = document.querySelector("#uploaded-size");
+const uploadedTime = document.querySelector("#uploaded-time");
+const uploadedChecksum = document.querySelector("#uploaded-checksum");
+const openDriveFile = document.querySelector("#open-drive-file");
 
 let activeCaptureRequestId = null;
 let pendingPreviewResult = null;
@@ -81,6 +97,11 @@ let activeSegmentedRequestId = null;
 let activeFullPageRequestId = null;
 let activeDriveSetupRequestId = null;
 let lastDriveSetupResult = null;
+let currentFullPageResult = null;
+let currentUploadStatus = null;
+let activeDriveUploadRequestId = null;
+let uploadActive = false;
+let interfaceBusy = false;
 
 function userSafeError(response, fallback) {
   const error = response?.payload?.error;
@@ -107,6 +128,7 @@ function setCaptureState(state, message) {
 }
 
 function setBusy(isBusy) {
+  interfaceBusy = isBusy;
   captureButton.disabled = isBusy;
   scaffoldCheckButton.disabled = isBusy;
   diagnosticButton.disabled = isBusy;
@@ -119,6 +141,61 @@ function setBusy(isBusy) {
   driveConnectButton.disabled = isBusy || !driveActions.connect;
   driveCheckFolderButton.disabled = isBusy || !driveActions.checkFolder;
   driveDisconnectButton.disabled = isBusy || !driveActions.disconnect;
+  updateUploadControls();
+}
+
+function updateUploadControls() {
+  const localReady = Boolean(currentFullPageResult?.resultId);
+  const driveReady = Boolean(lastDriveSetupResult?.connected);
+  const folderReady = Boolean(lastDriveSetupResult?.folder?.ready);
+  const alreadyUploaded =
+    currentUploadStatus?.resultId === currentFullPageResult?.resultId &&
+    currentUploadStatus?.canUpload === false;
+  uploadLocalReady.textContent = localReady ? "Ready" : "Unavailable";
+  uploadDriveReady.textContent = driveReady ? "Connected" : "Not connected";
+  uploadFolderReady.textContent = folderReady ? "Ready" : "Not checked";
+  driveUploadButton.disabled = interfaceBusy || uploadActive ||
+    !localReady || !driveReady || !folderReady || alreadyUploaded;
+  cancelDriveUploadButton.hidden = !uploadActive;
+  clearFullPageButton.disabled = uploadActive;
+}
+
+function showUploadStatus(status) {
+  if (!validateSafeUploadStatus(status)) return;
+  currentUploadStatus = status;
+  uploadActive = ["preparing-upload", "validating-folder", "starting-session",
+    "uploading", "verifying-upload"].includes(status.state);
+  const messages = {
+    idle: "Capture a full-page JPEG before uploading.",
+    ready: status.canUpload
+      ? "Local JPEG ready. Connect Google Drive and validate the managed folder."
+      : "This local JPEG was already uploaded. Capture a new result to upload again.",
+    "preparing-upload": "Preparing upload…",
+    "validating-folder": "Validating Drive folder…",
+    "starting-session": "Starting secure upload session…",
+    uploading: "Uploading JPEG…",
+    "verifying-upload": "Verifying upload…",
+    successful: "Upload successful. The local preview remains available.",
+    cancelled: "Upload cancelled. The local preview remains available.",
+    failed: status.error?.message ?? "Upload failed."
+  };
+  uploadOutcome.textContent = messages[status.state];
+  driveUploadResult.hidden = status.state !== "successful" || !status.result;
+  openDriveFile.hidden = true;
+  openDriveFile.removeAttribute("href");
+  if (status.result) {
+    uploadedFilename.textContent = status.result.filename;
+    uploadedSize.textContent = formatByteSize(status.result.size);
+    uploadedTime.textContent = new Date(status.result.uploadedAt).toLocaleString();
+    uploadedChecksum.textContent = status.result.checksumAvailable
+      ? "Available"
+      : "Not supplied";
+    if (status.result.webViewLink) {
+      openDriveFile.href = status.result.webViewLink;
+      openDriveFile.hidden = false;
+    }
+  }
+  updateUploadControls();
 }
 
 function showDriveSetupResult(result) {
@@ -132,6 +209,7 @@ function showDriveSetupResult(result) {
   driveConnectButton.disabled = !driveActions.connect;
   driveCheckFolderButton.disabled = !driveActions.checkFolder;
   driveDisconnectButton.disabled = !driveActions.disconnect;
+  updateUploadControls();
 }
 
 async function runDriveSetupAction(type, { busy = true } = {}) {
@@ -152,6 +230,7 @@ async function runDriveSetupAction(type, { busy = true } = {}) {
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
     }
     showDriveSetupResult(response.payload);
+    void restoreUploadStatus();
   } catch (error) {
     driveOutcome.textContent = validateApplicationError(error)
       ? error.message
@@ -162,7 +241,84 @@ async function runDriveSetupAction(type, { busy = true } = {}) {
   }
 }
 
+async function restoreUploadStatus() {
+  try {
+    const response = await sendWorkerMessage(MESSAGE_TYPES.DRIVE_UPLOAD_STATUS_REQUEST);
+    if (validateMessageEnvelope(response) &&
+        response.type === MESSAGE_TYPES.DRIVE_UPLOAD_STATUS_RESPONSE &&
+        validateSafeUploadStatus(response.payload)) {
+      showUploadStatus(response.payload);
+    }
+  } catch {
+    // Local preview and Drive setup remain usable if status restoration fails.
+  }
+}
+
+async function runDriveUpload() {
+  if (!currentFullPageResult?.resultId || uploadActive) return;
+  setBusy(true);
+  uploadActive = true;
+  updateUploadControls();
+  const request = createWorkerRequest(MESSAGE_TYPES.DRIVE_UPLOAD_START_REQUEST, {
+    resultId: currentFullPageResult.resultId
+  });
+  activeDriveUploadRequestId = request.requestId;
+  showUploadStatus(createSafeUploadStatus({
+    state: "preparing-upload",
+    resultId: currentFullPageResult.resultId,
+    updatedAt: Date.now()
+  }));
+  try {
+    const response = await chrome.runtime.sendMessage(request);
+    if (!validateMessageEnvelope(response) ||
+        response.requestId !== request.requestId) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type === MESSAGE_TYPES.DRIVE_UPLOAD_ERROR) {
+      throw validateApplicationError(response.payload.error)
+        ? response.payload.error
+        : createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    if (response.type !== MESSAGE_TYPES.DRIVE_UPLOAD_RESULT ||
+        !validateSafeUploadStatus(response.payload)) {
+      throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+    }
+    showUploadStatus(response.payload);
+  } catch (error) {
+    const safeError = validateApplicationError(error)
+      ? error
+      : createApplicationError({ code: ERROR_CODES.UPLOAD_FAILED });
+    showUploadStatus(createSafeUploadStatus({
+      state: safeError.code === ERROR_CODES.UPLOAD_ABORTED ? "cancelled" : "failed",
+      resultId: currentFullPageResult?.resultId ?? null,
+      canUpload: true,
+      error: { code: safeError.code, message: safeError.message },
+      updatedAt: Date.now()
+    }));
+    void restoreUploadStatus();
+  } finally {
+    activeDriveUploadRequestId = null;
+    uploadActive = false;
+    setBusy(false);
+    updateUploadControls();
+  }
+}
+
+async function cancelDriveUpload() {
+  if (!currentFullPageResult?.resultId || !uploadActive) return;
+  cancelDriveUploadButton.disabled = true;
+  try {
+    await chrome.runtime.sendMessage(createWorkerRequest(
+      MESSAGE_TYPES.DRIVE_UPLOAD_CANCEL_REQUEST,
+      { resultId: currentFullPageResult.resultId }
+    ));
+  } finally {
+    cancelDriveUploadButton.disabled = false;
+  }
+}
+
 function showFullPageResult(result) {
+  currentFullPageResult = result;
   fullPageMetadata.replaceChildren();
   for (const [label, value, selectable = false] of [
     ["Filename", result.filename, true],
@@ -204,12 +360,17 @@ function showFullPageResult(result) {
   }
   fullPagePreviewImage.src = result.previewUrl;
   fullPagePreview.hidden = false;
+  updateUploadControls();
 }
 
 function hideFullPageResult() {
+  currentFullPageResult = null;
   fullPagePreviewImage.removeAttribute("src");
   fullPageMetadata.replaceChildren();
   fullPagePreview.hidden = true;
+  currentUploadStatus = null;
+  uploadActive = false;
+  updateUploadControls();
 }
 
 async function clearFullPageResult({ announce = true } = {}) {
@@ -244,6 +405,7 @@ async function runFullPageCapture() {
       throw createApplicationError({ code: ERROR_CODES.INVALID_CAPTURE_RESULT });
     }
     showFullPageResult(response.payload);
+    void restoreUploadStatus();
     outputFilenameInput.value = "";
     setCaptureState("full-page-successful", "Full-page capture successful — temporary local preview ready.");
   } catch (error) {
@@ -742,6 +904,15 @@ chrome.runtime.onMessage.addListener((message) => {
     showDriveSetupResult(message.payload);
   }
 
+  if (validateMessageEnvelope(message) &&
+      message.type === MESSAGE_TYPES.DRIVE_UPLOAD_PROGRESS &&
+      message.source === CONTEXTS.SERVICE_WORKER &&
+      message.target === CONTEXTS.POPUP &&
+      message.requestId === activeDriveUploadRequestId &&
+      validateSafeUploadStatus(message.payload)) {
+    showUploadStatus(message.payload);
+  }
+
   return false;
 });
 
@@ -762,6 +933,8 @@ driveCheckFolderButton.addEventListener("click", () =>
   runDriveSetupAction(MESSAGE_TYPES.DRIVE_SETUP_ENSURE_FOLDER_REQUEST));
 driveDisconnectButton.addEventListener("click", () =>
   runDriveSetupAction(MESSAGE_TYPES.DRIVE_SETUP_DISCONNECT_REQUEST));
+driveUploadButton.addEventListener("click", runDriveUpload);
+cancelDriveUploadButton.addEventListener("click", cancelDriveUpload);
 fullPagePreviewImage.addEventListener("error", () => {
   void clearFullPageResult({ announce: false });
   setCaptureState("full-page-failed", "Capture failed — the temporary full-page preview could not be displayed.");
@@ -771,10 +944,12 @@ previewImage.addEventListener("error", () => captureFailure("The JPEG preview co
 window.addEventListener("pagehide", () => {
   activeCaptureRequestId = null;
   releasePreview({ announce: false, restoreFocus: false });
-  if (!fullPagePreview.hidden) void clearFullPageResult({ announce: false });
+  activeDriveSetupRequestId = null;
+  activeDriveUploadRequestId = null;
 });
 void checkWorkerConnection();
 void loadJpegQualityPreference();
 void refreshAutomaticFilenamePreview();
 void restoreFullPageResult();
 void runDriveSetupAction(MESSAGE_TYPES.DRIVE_SETUP_STATUS_REQUEST, { busy: false });
+void restoreUploadStatus();

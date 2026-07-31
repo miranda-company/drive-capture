@@ -324,7 +324,7 @@ tests/
 
 ### Phase 3B.1 checkpoint: configured OAuth, managed-folder setup, and persistent Disconnect
 
-**Status:** Phase 3B.1 implementation and automated verification are complete. A real Chrome Extension OAuth client is configured for the current extension ID. Explicit connection, managed-folder creation, cached validation, folder rename preservation, persistent local Disconnect, and reconnect without duplication were manually verified in Chrome. Screenshot upload is not implemented. Phase 3A browser verification and Phase 2E real-page verification remain pending.
+**Status:** Phase 3B.1 implementation and automated verification are complete. A real Chrome Extension OAuth client is configured for the current extension ID. Explicit connection, managed-folder creation, cached validation, folder rename preservation, persistent local Disconnect, and reconnect without duplication were manually verified in Chrome. Screenshot upload was not part of this checkpoint. Phase 3A browser verification and Phase 2E real-page verification remain pending.
 
 Completed:
 
@@ -359,18 +359,45 @@ Manual verification still pending:
 - Local screenshot-capture regression after OAuth setup.
 - Phase 3A browser acceptance and Phase 2E real-page overlay acceptance.
 
-Not implemented:
+Not implemented in Phase 3B.1:
 
-- Screenshot, media, multipart, or resumable upload; download; sharing; permissions management; cloud screenshot persistence; or horizontal capture.
+- Screenshot upload, download, sharing, permissions management, upload history, automatic upload, cloud screenshot persistence, or horizontal capture.
 - The remaining Chrome/Drive edge-case verification listed above.
 
-The Phase 3B folder is preparation for a later upload phase. Google Drive integration is not complete.
+## Phase 3C checkpoint: explicit resumable JPEG upload
 
-## Phase 4: Production OAuth configuration and upload authorization handoff
+**Status:** Implementation and automated verification are complete. Manual Chrome verification with the configured real OAuth client and an actual JPEG remains pending, so upload acceptance is not yet claimed.
+
+Completed:
+
+- Explicit capture-review-connect-validate-upload flow; capture completion never starts upload automatically.
+- Trusted offscreen result-readiness validation covering result identity, retained Blob, preview lifecycle, JPEG MIME/signature/size, sanitized filename, dimensions, and prior-upload state.
+- One authenticated worker-only resumable-session `POST` for every JPEG size, using the internal managed-folder ID and minimal screenshot metadata.
+- Strict HTTPS `www.googleapis.com` session-URI validation with fixed path, resumable type, session identifier, and no embedded credentials.
+- One existing offscreen Blob `PUT` with no OAuth token, Authorization header, Base64, `FormData`, multipart boundary, or Blob runtime message.
+- Worker validation of expected file ID presence, filename, MIME, size, parent, private markers, optional Drive link, timestamp, and checksum before returning safe popup metadata.
+- One same-session status-query `PUT` after network or `5xx` uncertainty; no automatic second session and no multi-chunk continuation.
+- Shared-lock exclusion, double-click protection, transient per-result duplicate prevention, cancellation, popup-reopen status, and preview preservation.
+- Safe session storage containing only current result ID, progress, safe errors, and safe final metadata; no token, Blob, screenshot, session URI, file ID, folder URL, or raw response.
+- Upload result clearing/replacement without deleting Drive files.
+
+Pending manual verification:
+
+- Real JPEG upload, visual validation, exact folder placement, filename/size comparison, and safe Drive-link behavior.
+- Popup closure/reopen during and after upload, duplicate prevention, second-capture upload, Disconnect/reconnect behavior, and cancellation on a sufficiently large JPEG.
+- Detailed storage, console, and Network inspection confirming only the session `POST`, Blob `PUT`, and at most one uncertainty query.
+- Network interruption, timeout, `308`, expired-session `404`, disabled API, quota, rate-limit, permission, browser shutdown, and account-switch outcomes.
+- All previously pending Phase 3B.1 folder/account edge cases, Phase 3A browser acceptance, and Phase 2E real-page overlay acceptance.
+
+Still not implemented:
+
+- Automatic/background upload, upload history, **Upload again**, multi-chunk continuation, downloads, sharing, permissions management, Google-level OAuth revocation, additional scopes, or horizontal capture.
+
+## Phase 4: Remaining OAuth and account-lifecycle hardening
 
 ### Objective
 
-Complete the remaining Phase 3B.1 authentication and folder-lifecycle edge-case verification before adding any upload token handoff.
+Complete the remaining Phase 3B.1 authentication and account/folder lifecycle edge-case verification. OAuth tokens must continue to remain worker-only; no token handoff to offscreen is planned.
 
 ### Implementation tasks
 
@@ -380,7 +407,7 @@ Complete the remaining Phase 3B.1 authentication and folder-lifecycle edge-case 
 - If no valid grant exists, request interactively only from the explicit user action flow.
 - Keep access tokens in transient memory only; prohibit storage and token logging.
 - On a Drive `401`, call `chrome.identity.removeCachedAuthToken()`, request a fresh token, and retry the failed operation once.
-- Send a short-lived token to the offscreen document only when it needs to perform the Drive request; receive only serializable success metadata or error details in return.
+- Keep authenticated Drive metadata and resumable-session initiation in the worker; offscreen receives only the validated session URI and non-secret Blob expectations.
 - Keep Disconnect as a persistent local DriveCapture disconnection: clear cached tokens and folder state, block silent token reacquisition until explicit Connect, and clearly distinguish this from remote grant revocation.
 - Consider Google-level authorization revocation as separate future work; it is not part of the local Disconnect behavior.
 - Map canceled consent, invalid client, revoked access, offline state, and account errors to user-facing authentication states.
@@ -392,7 +419,7 @@ Complete the remaining Phase 3B.1 authentication and folder-lifecycle edge-case 
 - Returning authorized users can obtain a cached token without an interactive prompt.
 - Exactly one token invalidation and refresh occurs after `401`; repeated `401` fails clearly.
 - No access token appears in storage, normal logs, errors, or telemetry.
-- The offscreen document clears its token reference after the upload attempt and never stores or logs it.
+- The offscreen document never receives a token or Authorization header.
 - Disconnect persists across popup closure, performs no non-interactive token or Drive request while active, and accurately explains that Google consent may remain granted.
 - The extension requests `drive.file` and no broader Drive scope.
 
@@ -417,73 +444,37 @@ tests/
   auth.test.js
 ```
 
-## Phase 5: Google Drive integration
+## Phase 5: Post-3C upload hardening and acceptance
 
 ### Objective
 
-Create and manage DriveCapture's dedicated Drive folder, then upload the offscreen-owned JPEG safely using the appropriate Drive upload protocol and bounded recovery behavior.
+Manually accept Phase 3C against real Google Drive and harden only the failure and lifecycle behavior justified by those results.
 
 ### Implementation tasks
 
-- On first upload, create a folder named `DriveCapture` with MIME type `application/vnd.google-apps.folder` and optional identifying `appProperties`.
-- Return the created folder metadata to the worker and store its ID in `chrome.storage.local`.
-- On later uploads, have the worker read the locally stored ID and send it as JSON metadata to the offscreen document for validation and reuse.
-- Distinguish a missing/inaccessible managed folder from malformed requests; inform the user before creating a replacement and saving its new ID locally.
-- Build metadata containing `name`, `mimeType: image/jpeg`, and `parents: [folderId]`.
-- Request response fields `id,name,webViewLink,parents`.
-- Keep the JPEG Blob in the offscreen document. Send only the token and JSON metadata from the worker, upload via offscreen Fetch, and return only JSON-serializable Drive metadata.
-- Use multipart upload when Blob size is at most 5 MB.
-- Initiate and complete a resumable upload when Blob size is greater than 5 MB.
-- Keep resumable-session URLs only in offscreen memory for the active upload; never store or log them.
-- Implement bounded exponential backoff with jitter for `429`, recoverable `5xx`, and eligible network failures.
-- Do not retry permanent `400`, `403`, or `404` responses blindly.
-- Integrate the one-time `401` token-refresh path from Phase 4.
-- On `401`, return a serializable authentication error so the worker can invalidate the token, obtain one replacement token, and ask the offscreen document to retry once.
-- Recover resumable progress where supported; fail clearly when a session expires or cannot be resumed.
-- Parse successful metadata and expose the Drive `webViewLink` in the popup.
+- Complete the Phase 3C Chrome matrix with a real JPEG and the configured OAuth client.
+- Verify the single resumable path for representative smaller and larger JPEGs.
+- Exercise cancellation, popup closure, network loss, timeout, `308`, expired session, rate limit, permission denial, quota, disabled API, and browser shutdown.
+- Preserve the current one-session duplicate-avoidance rule; do not add uncontrolled retries.
+- Decide whether multi-chunk continuation is warranted only after real large-file evidence.
+- Keep OAuth tokens worker-only, the Blob offscreen-only, and session URIs transient and unlogged.
+- Keep automatic upload, upload history, sharing, permissions management, and downloads out of scope.
 
 ### Acceptance criteria
 
-- A JPEG of 5 MB or less uses multipart upload and lands in the managed `DriveCapture` folder.
-- A JPEG larger than 5 MB uses resumable upload and lands in the managed `DriveCapture` folder.
-- First upload creates and locally records the managed `DriveCapture` folder; later uploads validate and reuse it.
-- The folder is created with `application/vnd.google-apps.folder` and, when used, the expected identifying `appProperties`.
-- A missing or inaccessible managed folder causes a user notification before a replacement is created and locally recorded.
-- The created file has the expected name, MIME type, parent, and returned fields.
-- `400`, `401`, `403`, `404`, `429`, recoverable `5xx`, offline, and interrupted-session cases produce tested outcomes.
-- Backoff has a strict attempt/time bound and permanent failures are not retried.
-- Success displays a safe link to the created Drive file.
-- Screenshot bytes are sent only to Google Drive endpoints.
-- Runtime messages never contain a Blob, and storage never contains screenshot bytes, tokens, Blobs, or resumable-session URLs.
+- Explicit upload creates exactly one valid JPEG in the marked managed folder with the expected name, MIME, size, parent, and private markers.
+- The local preview remains available and **Open in Google Drive** opens the validated file link only after a click.
+- Popup closure does not cancel or restart an upload, and a completed result cannot upload twice accidentally.
+- Cancellation and every failure release the shared lock without clearing the local preview.
+- Network evidence contains one authenticated session `POST`, one Blob `PUT`, and at most one same-session uncertainty query.
+- Storage and logs contain no token, session URI, Blob, screenshot bytes, raw file ID, account identity, email, Authorization header, or raw response.
 
 ### Major risks
 
-- Folder lookup should use the stored ID rather than broad Drive enumeration; duplicate managed folders are possible after deletion, access loss, or interrupted creation.
-- Shared drives and organizational policies can change permission behavior.
-- Large uploads require the offscreen document to remain alive for the active resumable session; an offscreen teardown or browser shutdown must fail clearly because session URLs are intentionally not persisted.
-- Retrying non-idempotent initiation requests carelessly can create duplicate files.
-- Session URLs and access tokens are credentials and require log redaction.
-
-### Expected files
-
-```text
-src/
-  background/
-    drive-coordinator.js
-  offscreen/
-    drive-client.js
-    multipart-upload.js
-    resumable-upload.js
-    retry.js
-  popup/
-    upload-view.js
-tests/
-  managed-folder.test.js
-  drive-client.test.js
-  multipart-upload.test.js
-  resumable-upload.test.js
-  retry.test.js
-```
+- Browser or worker shutdown can orphan an uncertain server-side upload because session URIs are intentionally not persisted.
+- A network break after server completion can make duplicate avoidance depend on the one status query.
+- Very large one-Blob uploads may need future chunking, but adding it prematurely would expand state and recovery risk.
+- Shared drives, organizational policy, quota, and consent-screen state can alter real behavior.
 
 ## Phase 6: Options page and UI polish
 

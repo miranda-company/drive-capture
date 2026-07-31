@@ -3,9 +3,13 @@ import { createApplicationError, ERROR_CODES, serializeUnknownError } from "../s
 import { createMessage, MESSAGE_TYPES, validateMessageEnvelope } from "../shared/messages.js";
 import { createSegmentSessionManager } from "./segment-decoder.js";
 import { createCanvasStitchSessionManager } from "./canvas-stitcher.js";
+import { createDriveBlobUploader } from "./drive-blob-uploader.js";
 
 const sessions = createSegmentSessionManager();
 const stitching = createCanvasStitchSessionManager();
+const uploader = createDriveBlobUploader({
+  getUploadSource: (resultId) => stitching.getUploadSource(resultId)
+});
 
 function response(message, type, payload) {
   return createMessage({
@@ -39,6 +43,24 @@ async function handleAsync(message) {
       return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_GET_RESPONSE, stitching.getResult());
     case MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_CLEAR_REQUEST:
       return response(message, MESSAGE_TYPES.OFFSCREEN_STITCH_RESULT_CLEAR_RESPONSE, stitching.clearResult());
+    case MESSAGE_TYPES.OFFSCREEN_UPLOAD_READINESS_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_UPLOAD_READINESS_RESPONSE,
+        stitching.getUploadReadiness(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_UPLOAD_START_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_UPLOAD_START_RESPONSE,
+        await uploader.start(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_UPLOAD_QUERY_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_UPLOAD_QUERY_RESPONSE,
+        await uploader.query(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_UPLOAD_CANCEL_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_UPLOAD_CANCEL_RESPONSE,
+        uploader.cancel(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_UPLOAD_MARK_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_UPLOAD_MARK_RESPONSE,
+        stitching.markUploaded(message.payload));
+    case MESSAGE_TYPES.OFFSCREEN_UPLOAD_STATUS_REQUEST:
+      return response(message, MESSAGE_TYPES.OFFSCREEN_UPLOAD_STATUS_RESPONSE,
+        uploader.status());
     default:
       throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
   }

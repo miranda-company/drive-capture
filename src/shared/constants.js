@@ -37,6 +37,7 @@ export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 export const DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 export const DRIVE_FOLDER_SCHEMA_VERSION = 1;
 export const DRIVE_REQUEST_TIMEOUT_MS = 15_000;
+export const DRIVE_UPLOAD_TIMEOUT_MS = 120_000;
 export const DRIVE_DISCOVERY_MAX_PAGES = 3;
 export const DRIVE_DISCOVERY_PAGE_SIZE = 50;
 
@@ -44,9 +45,10 @@ export const STORAGE_KEYS = Object.freeze({
   ACTIVE_JOB: "activeCaptureJob",
   MANAGED_DRIVE_FOLDER_ID: "managedDriveFolderId",
   DRIVE_EXPLICITLY_DISCONNECTED: "driveExplicitlyDisconnected",
+  DRIVE_UPLOAD_STATUS: "driveUploadStatus",
   JPEG_QUALITY: "jpegQuality",
   CAPTURE_DELAY_MS: "captureDelayMs"
 });
 
-export const CURRENT_EXTENSION_PHASE = "phase-3b-drive-setup";
+export const CURRENT_EXTENSION_PHASE = "phase-3c-drive-upload";
 export const OFFSCREEN_DOCUMENT_PATH = "src/offscreen/offscreen.html";

@@ -9,7 +9,7 @@
   <body>
     <main>
       <header>
-        <p class="eyebrow">Phase 3B Drive setup</p>
+        <p class="eyebrow">Phase 3C Drive upload</p>
         <h1>DriveCapture</h1>
         <p>Capture one visible browser viewport for a temporary preview.</p>
       </header>
@@ -21,7 +21,7 @@
 
       <section class="drive-setup" aria-labelledby="drive-setup-heading">
         <h2 id="drive-setup-heading">Google Drive setup</h2>
-        <p>No screenshots are uploaded in this phase.</p>
+        <p>Connect and validate the managed folder before explicitly uploading a reviewed local JPEG.</p>
         <dl class="metadata">
           <div><dt>OAuth</dt><dd id="drive-configuration">Checking…</dd></div>
           <div><dt>Connection</dt><dd id="drive-connection">Checking…</dd></div>
@@ -93,13 +93,39 @@
         <button id="cancel-full-page-capture" type="button" class="secondary-button" hidden>Cancel full-page capture</button>
       </section>
 
-      <p class="notice">Google Drive upload is not implemented. Local previews are temporary and are cleared when the extension reloads.</p>
+      <p class="notice">Capture and review locally first. DriveCapture never uploads automatically.</p>
 
       <section id="full-page-preview" class="preview" aria-labelledby="full-page-preview-heading" hidden>
         <h2 id="full-page-preview-heading">Temporary full-page JPEG</h2>
         <img id="full-page-preview-image" alt="Stitched full-page capture preview">
         <p class="option-warning">Fixed/sticky handling is heuristic and may leave repeats or hide an overlay that the page treats unusually.</p>
         <dl id="full-page-metadata" class="metadata"></dl>
+        <section id="drive-upload" class="drive-upload" aria-labelledby="drive-upload-heading">
+          <h3 id="drive-upload-heading">Save reviewed JPEG to Google Drive</h3>
+          <dl class="metadata">
+            <div><dt>Local JPEG</dt><dd id="upload-local-ready">Ready</dd></div>
+            <div><dt>Google Drive</dt><dd id="upload-drive-ready">Not connected</dd></div>
+            <div><dt>Managed folder</dt><dd id="upload-folder-ready">Not checked</dd></div>
+          </dl>
+          <p id="upload-outcome" class="option-warning">Connect Google Drive and validate the managed folder before uploading.</p>
+          <button id="drive-upload-start" type="button" disabled>Save to Google Drive</button>
+          <button id="drive-upload-cancel" type="button" class="secondary-button" hidden>Cancel upload</button>
+          <div id="drive-upload-result" hidden>
+            <dl class="metadata">
+              <div><dt>Filename</dt><dd id="uploaded-filename" class="selectable">—</dd></div>
+              <div><dt>File size</dt><dd id="uploaded-size">—</dd></div>
+              <div><dt>Upload time</dt><dd id="uploaded-time">—</dd></div>
+              <div><dt>Checksum</dt><dd id="uploaded-checksum">—</dd></div>
+            </dl>
+            <a
+              id="open-drive-file"
+              class="drive-link"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+            >Open in Google Drive</a>
+          </div>
+        </section>
         <button id="clear-full-page-preview" type="button" class="secondary-button">Clear full-page preview</button>
       </section>
 

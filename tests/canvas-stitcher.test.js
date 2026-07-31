@@ -80,6 +80,20 @@ test("draws incrementally, releases every decoded image, and retains only the fi
     maximumGapPixels: 0
   });
   assert.deepEqual(manager.getResult(), result);
+  const readiness = manager.getUploadReadiness({ resultId: "stitch-1" });
+  assert.equal(readiness.available, true);
+  assert.equal(readiness.uploaded, false);
+  assert.equal(readiness.blobSize, validJpegBytes.length);
+  assert.equal("blob" in readiness, false);
+  const source = manager.getUploadSource("stitch-1");
+  assert.equal(source.blob instanceof Blob, true);
+  assert.equal(source.metadata.resultId, "stitch-1");
+  assert.deepEqual(manager.markUploaded({ resultId: "stitch-1" }), {
+    resultId: "stitch-1",
+    uploaded: true
+  });
+  assert.equal(manager.getUploadReadiness({ resultId: "stitch-1" }).uploaded, true);
+  assert.equal("uploaded" in manager.getResult(), false);
 });
 
 test("crops a short page to the final canvas height", async () => {
@@ -116,6 +130,21 @@ test("revokes prior and cleared results and resets Canvas dimensions", async () 
   assert.deepEqual(revoked, ["blob:preview-1", "blob:preview-2"]);
   assert.equal(canvas.width, 0);
   assert.equal(canvas.height, 0);
+});
+
+test("a replacement capture resets the transient uploaded marker", async () => {
+  const { manager } = setup();
+  manager.start(startPayload("stitch-1", 1, { width: 100, height: 50 }));
+  await manager.draw(payload(0, 0));
+  await manager.finish({ sessionId: "stitch-1" });
+  manager.markUploaded({ resultId: "stitch-1" });
+  assert.equal(manager.getUploadReadiness().uploaded, true);
+
+  manager.start(startPayload("stitch-2", 1, { width: 100, height: 50 }));
+  assert.deepEqual(manager.getUploadReadiness(), { available: false });
+  await manager.draw(payload(0, 0, "stitch-2"));
+  await manager.finish({ sessionId: "stitch-2" });
+  assert.equal(manager.getUploadReadiness().uploaded, false);
 });
 
 test("rejects unsafe allocation and gaps before encoding", async () => {

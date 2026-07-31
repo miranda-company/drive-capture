@@ -31,6 +31,10 @@ import { createGoogleDriveClient } from "./google-drive-client.js";
 import { createManagedDriveFolder } from "./managed-drive-folder.js";
 import { createDriveSetupCoordinator } from "./drive-setup-coordinator.js";
 import { createDriveLocalState } from "./drive-local-state.js";
+import { createDriveUploadSession } from "./drive-upload-session.js";
+import { createDriveUploadState } from "./drive-upload-state.js";
+import { createOffscreenUploadAdapter } from "./offscreen-upload-adapter.js";
+import { createDriveUploadCoordinator } from "./drive-upload-coordinator.js";
 
 const jobState = createJobState();
 const visibleViewportCapture = createVisibleViewportCaptureCoordinator({
@@ -59,6 +63,19 @@ const googleAuth = createGoogleAuth();
 const googleDriveClient = createGoogleDriveClient();
 const managedDriveFolder = createManagedDriveFolder();
 const driveLocalState = createDriveLocalState();
+const driveUploadState = createDriveUploadState();
+const offscreenUploadAdapter = createOffscreenUploadAdapter();
+const driveUpload = createDriveUploadCoordinator({
+  auth: googleAuth,
+  driveClient: googleDriveClient,
+  managedFolder: managedDriveFolder,
+  localState: driveLocalState,
+  uploadSession: createDriveUploadSession(),
+  offscreen: offscreenUploadAdapter,
+  uploadState: driveUploadState,
+  jobState,
+  onProgress: (payload) => notifyDriveUploadProgress(payload)
+});
 const driveSetup = createDriveSetupCoordinator({
   auth: googleAuth,
   driveClient: googleDriveClient,
@@ -94,6 +111,12 @@ function createErrorResponse(request, error) {
               MESSAGE_TYPES.DRIVE_SETUP_DISCONNECT_REQUEST
             ].includes(request?.type)
             ? MESSAGE_TYPES.DRIVE_SETUP_ERROR
+          : [
+              MESSAGE_TYPES.DRIVE_UPLOAD_STATUS_REQUEST,
+              MESSAGE_TYPES.DRIVE_UPLOAD_START_REQUEST,
+              MESSAGE_TYPES.DRIVE_UPLOAD_CANCEL_REQUEST
+            ].includes(request?.type)
+            ? MESSAGE_TYPES.DRIVE_UPLOAD_ERROR
         : MESSAGE_TYPES.APPLICATION_ERROR_RESPONSE,
     source: CONTEXTS.SERVICE_WORKER,
     target: getResponseTarget(request),
@@ -153,6 +176,7 @@ function notifyFullPageCaptureProgress(requestId, payload) {
 }
 
 let activeDriveSetupRequestId = null;
+let activeDriveUploadRequestId = null;
 
 function notifyDriveSetupProgress(payload) {
   if (!activeDriveSetupRequestId) return;
@@ -161,6 +185,17 @@ function notifyDriveSetupProgress(payload) {
     source: CONTEXTS.SERVICE_WORKER,
     target: CONTEXTS.POPUP,
     requestId: activeDriveSetupRequestId,
+    payload
+  })).catch(() => {});
+}
+
+function notifyDriveUploadProgress(payload) {
+  if (!activeDriveUploadRequestId) return;
+  void chrome.runtime.sendMessage(createMessage({
+    type: MESSAGE_TYPES.DRIVE_UPLOAD_PROGRESS,
+    source: CONTEXTS.SERVICE_WORKER,
+    target: CONTEXTS.POPUP,
+    requestId: activeDriveUploadRequestId,
     payload
   })).catch(() => {});
 }
@@ -433,6 +468,7 @@ async function handleMessage(message) {
         suppressRepeatedOverlays: message.payload.suppressRepeatedOverlays,
         onProgress: (payload) => notifyFullPageCaptureProgress(message.requestId, payload)
       });
+      await driveUpload.clearStatus();
       return createMessage({
         type: MESSAGE_TYPES.FULL_PAGE_CAPTURE_SUCCESS,
         source: CONTEXTS.SERVICE_WORKER,
@@ -470,9 +506,13 @@ async function handleMessage(message) {
 
     case MESSAGE_TYPES.FULL_PAGE_RESULT_CLEAR_REQUEST: {
       if (message.source !== CONTEXTS.POPUP) throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      if (await driveUpload.isActive()) {
+        throw createApplicationError({ code: ERROR_CODES.UPLOAD_BUSY });
+      }
       let payload = { cleared: false };
       try {
         payload = await offscreenStitchAdapter.clearResult();
+        await driveUpload.clearStatus();
         await offscreenStitchAdapter.closeDocument();
       } catch {}
       return createMessage({
@@ -501,6 +541,9 @@ async function handleMessage(message) {
             : message.type === MESSAGE_TYPES.DRIVE_SETUP_ENSURE_FOLDER_REQUEST
               ? await driveSetup.ensureFolder()
               : await driveSetup.disconnect();
+        if (message.type === MESSAGE_TYPES.DRIVE_SETUP_DISCONNECT_REQUEST) {
+          await driveUpload.clearStatus();
+        }
         return createMessage({
           type: MESSAGE_TYPES.DRIVE_SETUP_RESULT,
           source: CONTEXTS.SERVICE_WORKER,
@@ -511,6 +554,62 @@ async function handleMessage(message) {
       } finally {
         activeDriveSetupRequestId = null;
       }
+    }
+
+    case MESSAGE_TYPES.DRIVE_UPLOAD_STATUS_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP ||
+          Object.keys(message.payload).length !== 0) {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+      const payload = await driveUpload.status();
+      return createMessage({
+        type: MESSAGE_TYPES.DRIVE_UPLOAD_STATUS_RESPONSE,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload
+      });
+    }
+
+    case MESSAGE_TYPES.DRIVE_UPLOAD_START_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP ||
+          Object.keys(message.payload).length !== 1 ||
+          typeof message.payload.resultId !== "string") {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+      activeDriveUploadRequestId = message.requestId;
+      try {
+        const payload = await driveUpload.start({
+          resultId: message.payload.resultId
+        });
+        return createMessage({
+          type: MESSAGE_TYPES.DRIVE_UPLOAD_RESULT,
+          source: CONTEXTS.SERVICE_WORKER,
+          target: CONTEXTS.POPUP,
+          requestId: message.requestId,
+          payload
+        });
+      } finally {
+        activeDriveUploadRequestId = null;
+      }
+    }
+
+    case MESSAGE_TYPES.DRIVE_UPLOAD_CANCEL_REQUEST: {
+      if (message.source !== CONTEXTS.POPUP ||
+          Object.keys(message.payload).length !== 1 ||
+          typeof message.payload.resultId !== "string") {
+        throw createApplicationError({ code: ERROR_CODES.INVALID_MESSAGE });
+      }
+      const payload = await driveUpload.cancel({
+        resultId: message.payload.resultId
+      });
+      return createMessage({
+        type: MESSAGE_TYPES.DRIVE_UPLOAD_CANCEL_RESPONSE,
+        source: CONTEXTS.SERVICE_WORKER,
+        target: CONTEXTS.POPUP,
+        requestId: message.requestId,
+        payload
+      });
     }
 
     default:
